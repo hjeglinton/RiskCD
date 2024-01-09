@@ -1,0 +1,17 @@
+
+data/public/bank_data.csv
+data/.DS_Store
+data/public/.DS_Store
+data/public/.RData
+data/public/.Rhistory
+data/public/breastcancer_cvindices.csv
+*.csv
+R/.RData
+R/.Rhistory
+results/.DS_Store
+results/public/.DS_Store
+results/public/.RData
+results/public/.Rhistory
+results/tb/.DS_Store
+data/tb/.DS_Store
+.DS_Store
