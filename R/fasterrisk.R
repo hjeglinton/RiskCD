@@ -10,12 +10,12 @@
 fasterrisk <- import("fasterrisk")
 np <- import("numpy", convert=FALSE)
 
-FR_coef <- function(X, y, lb, ub) {
+run_FR <- function(X_train, y_train, X_test, lb, ub) {
   
-  y_train <- case_when(y == 0 ~ -1,
-                       y == 1 ~ 1)
+  y_train <- case_when(y_train == 0 ~ -1,
+                       y_train == 1 ~ 1)
   
-  X_train <- np$array(X)
+  X_train <- np$array(X_train)
   y_train <- np$array(y_train)
   
   m <- fasterrisk$fasterrisk$RiskScoreOptimizer(X = X_train, y = y_train, k = dim(X)[2]-1, 
@@ -36,20 +36,27 @@ FR_coef <- function(X, y, lb, ub) {
   coefficients = np$array(sparseDiversePool_betas_integer[model_index, ])
   
   coefficients[0] = intercept
+  
 
-  return(as.numeric(coefficients/multiplier))
+  RiskScoreClassifier_m = fasterrisk$fasterrisk$RiskScoreClassifier(multiplier, intercept, coefficients)
+  predicted_probs_test <- RiskScoreClassifier_m$predict_prob(X_test)
+  
+
+  return(list(coef = as.numeric(coefficients/multiplier),
+              integer_coef = as.numeric(coefficients),
+              pred_test = predicted_probs_test))
   
 }
 
 
-setwd("/Users/hannaheglinton/Library/CloudStorage/OneDrive-BrownUniversity/Thesis/Experiments/R")
+#setwd("/Users/hannaheglinton/Library/CloudStorage/OneDrive-BrownUniversity/Thesis/Experiments/R")
 
 # Read in TB risk data
-tb_risk_df <- read.csv("../data/tb/tb_risk_data.csv")
+#tb_risk_df <- read.csv("../data/tb/tb_risk_data.csv")
 
 
 # Transform data into y and X matrices
-y <- tb_risk_df[[1]]
-X <- as.matrix(tb_risk_df[,-1])
+#y <- tb_risk_df[[1]]
+#X <- as.matrix(tb_risk_df[,-1])
 
-FR_coef(X, y, lb = -5, ub = 5)
+#run_FR(X, y, X, lb = -5, ub = 5)
