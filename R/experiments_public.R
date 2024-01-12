@@ -21,8 +21,14 @@ registerDoParallel(cores=4)
 #' @param pred Numeric vector of predicted probabilities to compare to observed
 #' outcomes. 
 #' @param y Numeric vector of observed outcomes, of the same length as `pred`.
-#' @return results are saved as a csv file results_R.csv to results_path
-get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0) {
+#' @param t1 Starting time.
+#' @param t2 Ending time. 
+#' @param file File name.
+#' @param method Method name. 
+#' @param lambda0 If applicable, lambda0 value used in model. 
+#' @return Dataframe with a single row containing information on dataset, method,
+#' and model metrics. 
+get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA) {
 
   time_secs <- t2 - t1
   non_zeros <- sum(betas[-1] != 0, na.rm = TRUE)
@@ -42,11 +48,12 @@ get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0) {
   return(data.frame(
     data = file,
     n = nrow(X), 
-    p = ncol(X) - 1, 
+    p = ncol(X), 
     method = method,
     seconds = as.numeric(difftime(t2, t1, units = "secs")),
     lambda0 = lambda0,
     nonzeros = non_zeros,
+    deviance = dev, 
     threshold = coords(roc_obj, "best",  ret = "threshold")[[1]],
     auc = roc_obj$auc[[1]],
     brier = mean((pred - as.numeric(y))^2),
@@ -75,7 +82,7 @@ run_experiments <- function(data_path, results_path){
   files <- list.files(data_path)
   results <- data.frame(data = character(), n = numeric(), p = numeric(),
                         method = character(), seconds = numeric(), 
-                        lambda0 = numeric(), nonzeros = integer(), 
+                        lambda0 = numeric(), nonzeros = integer(), deviance = numeric(),
                         threshold = numeric(), auc = numeric(), brier = numeric(), 
                         precision = numeric(), recall = numeric(), 
                         f1_score = numeric(), accuracy = numeric(), 
@@ -117,7 +124,7 @@ run_experiments <- function(data_path, results_path){
     foldids <- stratify_folds(y_train, nfolds = 5, seed = 1)
     
     
-    # NLLCD
+    # NLLCD - no CV
     start_nllcd <- Sys.time()
     #lambda0 <- cv_risk_mod(X_train, y_train, weights=weights_train, 
                            #foldids = foldids, parallel = T)$lambda_min
@@ -131,6 +138,20 @@ run_experiments <- function(data_path, results_path){
                                 end_nllcd, f, "NLLCD",
                                 lambda0)
     
+    # NLLCD - with CV
+    start_nllcd_cv <- Sys.time()
+    lambda0 <- cv_risk_mod(X_train, y_train, weights=weights_train, 
+      foldids = foldids, parallel = T)$lambda_min
+    #lambda0 <- 0
+    mod_nllcd_cv <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = lambda0)
+    coef_nllcd_cv <- coef(mod_nllcd_cv) %>% as.vector
+    end_nllcd_cv <- Sys.time()
+    
+    pred_nllcd_cv <- predict(mod_nllcd_cv, X_test, type = "response")[,1]
+    res_nllcd_cv <- get_result_row(coef_nllcd_cv, X, pred_nllcd_cv, y_test, start_nllcd_cv,
+                                end_nllcd_cv, f, "NLLCD with CV",
+                                lambda0)
+    
     # FasterRisk
     X_train_FR <- cbind(rep(1, nrow(X_train)), X_train)
     X_test_FR <- cbind(rep(1, nrow(X_test)), X_test)
@@ -140,7 +161,7 @@ run_experiments <- function(data_path, results_path){
     end_FR <- Sys.time()
     
     res_FR <- get_result_row(mod_FR$coef, X, mod_FR$pred_test, y_test, 
-                             start_FR, end_FR, f, "FR", NA)
+                             start_FR, end_FR, f, "FasterRisk", NA)
     
     # Lasso
     start_lasso <- Sys.time()
@@ -204,8 +225,6 @@ run_experiments <- function(data_path, results_path){
                                         y_test, start_glm, end_glm_rounded, 
                                         f, "Rounded LR", NA)
 
-    
-    
     # Combine evaluation metrics
     results <- bind_rows(
       results, 
@@ -214,14 +233,11 @@ run_experiments <- function(data_path, results_path){
       res_glm_rounded,
       res_lasso,
       res_lasso_rounded,
-      res_nllcd
+      res_nllcd,
+      res_nllcd_cv
     )
-    
-    
-    
-    
   }
-  write.csv(results, paste0(results_path, "results_public_noCV.csv"), row.names=FALSE)
+  write.csv(results, results_path, row.names=FALSE)
 }
 
-run_experiments(data_path = "../data/public/", results_path = "../results/public/")
+run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public_withCV.csv")
