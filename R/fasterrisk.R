@@ -7,8 +7,9 @@
 #use_virtualenv("FasterRisk-environment")
 
 #py_install("fasterrisk", pip=TRUE, envname="FasterRisk-environment")
-#fasterrisk <- import("fasterrisk")
-#np <- import("numpy", convert=FALSE)
+
+fasterrisk <- import("fasterrisk")
+np <- import("numpy", convert=FALSE)
 
 
 #' Run FasterRisk
@@ -31,6 +32,9 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub) {
     X_test <- X_train
   }
   
+  # Set sparsity
+  k = dim(X_train)[2]-1
+  
   # Reformat outcome data to -1/1
   y_train <- case_when(y_train == 0 ~ -1,
                        y_train == 1 ~ 1)
@@ -41,7 +45,7 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub) {
   
   # Run FasterRisk method
   m <- fasterrisk$fasterrisk$RiskScoreOptimizer(X = X_train, y = y_train, 
-                                                k = dim(X)[2]-1, 
+                                                k = k, 
                                                 lb = lb, ub = ub)
   m$optimize()
 
