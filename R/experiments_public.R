@@ -1,3 +1,5 @@
+#devtools::install_github("hjeglinton/riskscores", build_vignettes = TRUE)
+
 setwd("~/Documents/GitHub/thesis/R")
 set.seed(1)
 
@@ -5,6 +7,8 @@ library(riskscores)
 library(doParallel)
 library(caret)
 library(glmnet)
+library(pROC)
+library(tidyverse)
 
 source("fasterrisk.R")
 
@@ -36,6 +40,8 @@ get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA
   max_abs <- max(abs(betas[-1]), na.rm = TRUE)
   
   # Deviance
+  pred[pred == 0] <- 1e-10
+  pred[pred == 1] <- 1-1e-10
   dev <- -2*sum(y*log(pred)+(1-y)*log(1-pred))
   
   # Save ROC object 
@@ -126,8 +132,6 @@ run_experiments <- function(data_path, results_path){
     
     # NLLCD - no CV
     start_nllcd <- Sys.time()
-    #lambda0 <- cv_risk_mod(X_train, y_train, weights=weights_train, 
-                           #foldids = foldids, parallel = T)$lambda_min
     lambda0 <- 0
     mod_nllcd <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = lambda0)
     coef_nllcd <- coef(mod_nllcd) %>% as.vector
@@ -140,17 +144,26 @@ run_experiments <- function(data_path, results_path){
     
     # NLLCD - with CV
     start_nllcd_cv <- Sys.time()
-    lambda0 <- cv_risk_mod(X_train, y_train, weights=weights_train, 
-      foldids = foldids, parallel = T)$lambda_min
-    #lambda0 <- 0
-    mod_nllcd_cv <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = lambda0)
-    coef_nllcd_cv <- coef(mod_nllcd_cv) %>% as.vector
+    cv_results <- cv_risk_mod(X_train, y_train, weights=weights_train, 
+      foldids = foldids, parallel = T)
+    mod_nllcd_cv_min <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = cv_results$lambda_min)
+    coef_nllcd_cv_min <- coef(mod_nllcd_cv_min) %>% as.vector
     end_nllcd_cv <- Sys.time()
     
-    pred_nllcd_cv <- predict(mod_nllcd_cv, X_test, type = "response")[,1]
-    res_nllcd_cv <- get_result_row(coef_nllcd_cv, X, pred_nllcd_cv, y_test, start_nllcd_cv,
-                                end_nllcd_cv, f, "NLLCD with CV",
-                                lambda0)
+    mod_nllcd_cv_1se <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = cv_results$lambda_1se)
+    coef_nllcd_cv_1se <- coef(mod_nllcd_cv_1se) %>% as.vector
+    
+    pred_nllcd_cv_min <- predict(mod_nllcd_cv_min, X_test, type = "response")[,1]
+    pred_nllcd_cv_1se <- predict(mod_nllcd_cv_1se, X_test, type = "response")[,1]
+    
+    
+    res_nllcd_cv_min <- get_result_row(coef_nllcd_cv_min, X, pred_nllcd_cv_min, y_test, start_nllcd_cv,
+                                end_nllcd_cv, f, "NLLCD with CV (lambda_min)",
+                                cv_results$lambda_min)
+    
+    res_nllcd_cv_1se <- get_result_row(coef_nllcd_cv_1se, X, pred_nllcd_cv_1se, y_test, start_nllcd_cv,
+                                       end_nllcd_cv, f, "NLLCD with CV (lambda_min)",
+                                       cv_results$lambda_1se)
     
     # FasterRisk
     X_train_FR <- cbind(rep(1, nrow(X_train)), X_train)
@@ -160,7 +173,7 @@ run_experiments <- function(data_path, results_path){
     mod_FR <- run_FR(X_train_FR, y_train, X_test_FR, lb = -10, ub = 10) 
     end_FR <- Sys.time()
     
-    res_FR <- get_result_row(mod_FR$coef, X, mod_FR$pred_test, y_test, 
+    res_FR <- get_result_row(mod_FR$integer_coef, X, mod_FR$pred_test, y_test, 
                              start_FR, end_FR, f, "FasterRisk", NA)
     
     # Lasso
@@ -234,10 +247,11 @@ run_experiments <- function(data_path, results_path){
       res_lasso,
       res_lasso_rounded,
       res_nllcd,
-      res_nllcd_cv
+      res_nllcd_cv_min,
+      res_nllcd_cv_1se
     )
   }
   write.csv(results, results_path, row.names=FALSE)
 }
 
-run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public_withCV.csv")
+run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public_withCV_2.csv")
