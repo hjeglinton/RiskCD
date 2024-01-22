@@ -9,6 +9,7 @@ library(caret)
 library(glmnet)
 library(pROC)
 library(tidyverse)
+library(parallel)
 
 source("fasterrisk.R")
 
@@ -45,7 +46,7 @@ get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA
   dev <- -2*sum(y*log(pred)+(1-y)*log(1-pred))
   
   # Save ROC object 
-  roc_obj <- roc(y, pred)
+  roc_obj <- roc(y, pred, quiet = TRUE)
   
   precision <- coords(roc_obj, "best", ret = "precision")[[1]]
   recall <- coords(roc_obj, "best", ret = "recall")[[1]]
@@ -86,28 +87,17 @@ run_experiments <- function(data_path, results_path){
 
   # Files in path
   files <- list.files(data_path)
-  results <- data.frame(data = character(), n = numeric(), p = numeric(),
-                        method = character(), seconds = numeric(), 
-                        lambda0 = numeric(), nonzeros = integer(), deviance = numeric(),
-                        threshold = numeric(), auc = numeric(), brier = numeric(), 
-                        precision = numeric(), recall = numeric(), 
-                        f1_score = numeric(), accuracy = numeric(), 
-                        sensitivity = numeric(), specificity = numeric(), 
-                        med_abs = numeric(), max_abs = numeric())
   
-  # Iterate through files
-  for (f in files){
-    if (length(grep("_data.csv", f)) == 0) next
-    
-    # Print for ease
-    print(paste0(data_path,f))
+  # Find data files
+  files_data <- files[grep("_data.csv", files)]
+
+  res <- mclapply(files_data, function(f) {
     
     # Read in data
     df <- read.csv(paste0(data_path,f))
     y <- df[[1]]
     X <- as.matrix(df[,2:ncol(df)])
-    #X <- cbind(rep(1,nrow(X)), X) # adds intercept column
-    
+
     # Add weights file if needed
     weights <- rep(1, nrow(X))
     weights_file <- paste0(substr(f,1,nchar(f)-8),"_weights.csv")
@@ -129,7 +119,6 @@ run_experiments <- function(data_path, results_path){
     # Stratify folds 
     foldids <- stratify_folds(y_train, nfolds = 5, seed = 1)
     
-    
     # NLLCD - no CV
     start_nllcd <- Sys.time()
     lambda0 <- 0
@@ -144,23 +133,23 @@ run_experiments <- function(data_path, results_path){
     
     # NLLCD - with CV
     start_nllcd_cv <- Sys.time()
-    cv_results <- cv_risk_mod(X_train, y_train, weights=weights_train, 
+    cv_results <- cv_risk_mod(X_train, y_train, weights=weights_train,
       foldids = foldids, parallel = T)
     mod_nllcd_cv_min <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = cv_results$lambda_min)
     coef_nllcd_cv_min <- coef(mod_nllcd_cv_min) %>% as.vector
     end_nllcd_cv <- Sys.time()
-    
+
     mod_nllcd_cv_1se <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = cv_results$lambda_1se)
     coef_nllcd_cv_1se <- coef(mod_nllcd_cv_1se) %>% as.vector
-    
+
     pred_nllcd_cv_min <- predict(mod_nllcd_cv_min, X_test, type = "response")[,1]
     pred_nllcd_cv_1se <- predict(mod_nllcd_cv_1se, X_test, type = "response")[,1]
-    
-    
+
+
     res_nllcd_cv_min <- get_result_row(coef_nllcd_cv_min, X, pred_nllcd_cv_min, y_test, start_nllcd_cv,
                                 end_nllcd_cv, f, "NLLCD with CV (lambda_min)",
                                 cv_results$lambda_min)
-    
+
     res_nllcd_cv_1se <- get_result_row(coef_nllcd_cv_1se, X, pred_nllcd_cv_1se, y_test, start_nllcd_cv,
                                        end_nllcd_cv, f, "NLLCD with CV (lambda_min)",
                                        cv_results$lambda_1se)
@@ -190,10 +179,12 @@ run_experiments <- function(data_path, results_path){
                                 mod_lasso$lambda.min)
     
     # Rounded Lasso 
-    nonzero_lasso <- coef_lasso[coef_lasso != 0][-1]
-    b0_lasso_scaled <- coef_lasso[1]/median(nonzero_lasso)
+    scalar <- ifelse(is_empty(coef_lasso[coef_lasso != 0][-1]),
+                     1,
+                     median(coef_lasso[coef_lasso != 0][-1], na.rm = TRUE))
+    b0_lasso_scaled <- coef_lasso[1]/scalar
     coef_lasso_rounded <- c(b0_lasso_scaled, 
-                            round(coef_lasso[-1]/median(nonzero_lasso), 0))
+                            round(coef_lasso[-1]/scalar, 0))
     scores <- as.vector(X_train_FR %*% coef_lasso_rounded)
     mod_scores <- glm(y_train ~ scores, family = "binomial")
     end_lasso_rounded <- Sys.time()
@@ -204,9 +195,9 @@ run_experiments <- function(data_path, results_path){
     res_lasso_rounded <- get_result_row(coef_lasso_rounded, X, pred_lasso_rounded,
                                         y_test, start_lasso, end_lasso_rounded, 
                                         f, "Rounded Lasso", mod_lasso$lambda.min)
-
     
-  
+    
+    
     # Logistic Regression
     df_glm <- data.frame(X_train, y = y_train)
     
@@ -235,12 +226,11 @@ run_experiments <- function(data_path, results_path){
     pred_glm_rounded <- predict(mod_scores, scores_test, type = "response")
     
     res_glm_rounded <- get_result_row(coef_glm_rounded, X, pred_glm_rounded,
-                                        y_test, start_glm, end_glm_rounded, 
-                                        f, "Rounded LR", NA)
-
+                                      y_test, start_glm, end_glm_rounded, 
+                                      f, "Rounded LR", NA)
+    
     # Combine evaluation metrics
     results <- bind_rows(
-      results, 
       res_FR,
       res_glm,
       res_glm_rounded,
@@ -250,8 +240,29 @@ run_experiments <- function(data_path, results_path){
       res_nllcd_cv_min,
       res_nllcd_cv_1se
     )
-  }
-  write.csv(results, results_path, row.names=FALSE)
+    return(results)
+  }, mc.cores = 4)
+  
+  
+  combine_results <- do.call(rbind, lapply(res, data.frame))
+    
+  write.csv(combine_results, results_path, row.names=FALSE)
 }
 
-run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public_withCV_2.csv")
+
+# Public datasets
+run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public.csv")
+
+
+# Simulated data
+
+#run_experiments(data_path = "../data/simulated/", results_path = "../results/simulated/results_sim_withCV.csv")
+
+
+
+
+
+
+
+
+
