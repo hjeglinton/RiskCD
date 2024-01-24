@@ -13,4 +13,5 @@ results/public/.RData
 results/public/.Rhistory
 results/tb/.DS_Store
 data/tb/.DS_Store
+data/simulated/*
 .DS_Store
