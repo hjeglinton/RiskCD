@@ -19,7 +19,7 @@ sim_data <- function(n, p, prop_zero, eps = 0){
   }
   
   # Simulate coefficients
-  p_zero <- p*prop_zero
+  p_zero <- p*floor(prop_zero)
   p_nonzero <- p - p_zero
   
   coef_small <- runif(floor(p_nonzero*(3/4)), 0.5, 1.5)
@@ -69,19 +69,20 @@ gen_data <- function(n, p, prop_zero, eps, folder, filename){
 
 # Example of generating data and saving
 set.seed(5)
-n = c(100, 500, 1000, 5000, 10000)
-p = c(8, 16, 32, 64)
-prop_zero = c(0, 0.25, 0.50)
+n = c(100, 500, 1000, 5000)
+p = c(10, 25, 50)
+prop_zero = c(0, 0.25, 0.50, 0.75)
+eps = c(0, 0.2, 0.4, 0.6, 0.8)
 
 for (j in 1:length(n)){
   for (k in 1:length(p)) {
     for (l in 1:length(prop_zero)) {
-      for (eps in c(0)){
+      for (e in 1:length(eps)){
         for (i in 1:5){
-          gen_data(n[j], p[k], prop_zero[l], eps, 
+          gen_data(n[j], p[k], prop_zero[l], eps[e], 
                    "~/Documents/GitHub/thesis/data/simulated/",
                    paste0("sim",'_',n[j],'_',p[k],"_",prop_zero[l],
-                          "_",as.integer(10*eps),"_",i))
+                          "_",as.integer(10*eps[e]),"_",i))
         }
       }
     }
