@@ -1,3 +1,5 @@
+library(caret)
+library(pROC)
 setwd("~/Documents/GitHub/thesis/R")
 
 # Files in path
@@ -6,6 +8,14 @@ files <- list.files("../data/simulated/")
 # Find data files
 files_data <- files[grep("_data.csv", files)]
 results <- data.frame(file = NA, auc = NA)
+
+for (f in files_data) {
+  df <- read.csv(paste0("../data/simulated/",f))
+  y <- df[[1]]
+  if(any(is.na(y))) {
+    print(f)
+  }
+}
   
 for (f in files_data) {
   # Read in data
@@ -52,7 +62,7 @@ results_auc <- separate(data = results, col = 1,
                         into = c("sim", "n", "p", "prop_zero",
                                  "eps", "iter", "data"),
                         sep = "_") %>%
-  group_by(n, p, prop_zero, eps) %>%
+  group_by(prop_zero) %>%
   summarize(auc = mean(auc)) %>%
   remove_missing()
 

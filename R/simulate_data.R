@@ -10,7 +10,7 @@ library(tidyverse)
 #' @param eps Value between 0 and 1 representing amount of noise.
 #' @return List with simulated covariates (x), outcome (y), coefficients (coef),
 #' and intercept. 
-sim_data <- function(n, p, prop_zero, eps = 0){
+sim_data <- function(n, p, prop_zero, snr){
   
   # Simulate covariates
   x <- matrix(0, nrow = n, ncol = p)
@@ -19,7 +19,7 @@ sim_data <- function(n, p, prop_zero, eps = 0){
   }
   
   # Simulate coefficients
-  p_zero <- p*floor(prop_zero)
+  p_zero <- floor(p*prop_zero)
   p_nonzero <- p - p_zero
   
   coef_small <- runif(floor(p_nonzero*(3/4)), 0.5, 1.5)
@@ -30,8 +30,12 @@ sim_data <- function(n, p, prop_zero, eps = 0){
   vals <- x %*% coef
   intercept <- -mean(vals)
   
+  # Get epsilon values
+  sd_epsilon <- sqrt(var(vals, na.rm = TRUE) / snr)
+  eps <- matrix(rnorm(n, mean = 0, sd = sd_epsilon), ncol = 1)
+  
   # Simulate outcome
-  vals <- vals + intercept + rnorm(n, 0, eps * sd(vals))
+  vals <- vals + intercept + eps
   probs <- exp(vals)/(1 + exp(vals))
   y <- rbinom(n, 1, prob = probs)
   
@@ -71,18 +75,19 @@ gen_data <- function(n, p, prop_zero, eps, folder, filename){
 set.seed(5)
 n = c(100, 500, 1000, 5000)
 p = c(10, 25, 50)
-prop_zero = c(0, 0.25, 0.50, 0.75)
-eps = c(0, 0.2, 0.4, 0.6, 0.8)
+prop_zero = c(0, 0.5)
+snr = c(1, 3, 6)
+n_iter = 10
 
 for (j in 1:length(n)){
   for (k in 1:length(p)) {
     for (l in 1:length(prop_zero)) {
-      for (e in 1:length(eps)){
-        for (i in 1:5){
-          gen_data(n[j], p[k], prop_zero[l], eps[e], 
+      for (s in 1:length(snr)){
+        for (i in 1:n_iter){
+          gen_data(n[j], p[k], prop_zero[l], snr[s], 
                    "~/Documents/GitHub/thesis/data/simulated/",
                    paste0("sim",'_',n[j],'_',p[k],"_",prop_zero[l],
-                          "_",as.integer(10*eps[e]),"_",i))
+                          "_",snr[s],"_",i))
         }
       }
     }
