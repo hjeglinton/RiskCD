@@ -12,12 +12,6 @@ library(tidyverse)
 #' and intercept. 
 sim_data <- function(n, p, prop_zero, snr){
   
-  # Simulate covariates
-  x <- matrix(0, nrow = n, ncol = p)
-  for (i in 1:p){
-    x[,i] <- rbinom(n, 1, runif(1, 0.1, 0.9))
-  }
-  
   # Simulate coefficients
   p_zero <- floor(p*prop_zero)
   p_nonzero <- p - p_zero
@@ -26,20 +20,26 @@ sim_data <- function(n, p, prop_zero, snr){
   coef_large <- runif(ceiling(p_nonzero*(1/4)), 3, 5)
   coef <- c(coef_small, coef_large, rep(0, p_zero))
   
+  # Simulate covariates
+  x <- matrix(0, nrow = n + (10*p), ncol = p)
+  for (i in 1:p){
+    x[,i] <- rbinom(n + (10*p), 1, runif(1, 0.1, 0.9))
+  }
+  
   # Get intercept
   vals <- x %*% coef
   intercept <- -mean(vals)
   
   # Get epsilon values
   sd_epsilon <- sqrt(var(vals, na.rm = TRUE) / snr)
-  eps <- matrix(rnorm(n, mean = 0, sd = sd_epsilon), ncol = 1)
+  eps <- matrix(rnorm(n + (10*p), mean = 0, sd = sd_epsilon), ncol = 1)
   
   # Simulate outcome
   vals <- vals + intercept + eps
   probs <- exp(vals)/(1 + exp(vals))
-  y <- rbinom(n, 1, prob = probs)
+  y <- rbinom(n + 10*p, 1, prob = probs)
   
-  return(list(x=x,y=y,coef=coef, intercept =intercept))
+  return(list(x = x, y = y,coef = coef, intercept = intercept))
 }
 
 
@@ -52,20 +52,21 @@ sim_data <- function(n, p, prop_zero, snr){
 #' @param folder Path to folder in which to save files (include ending slash). 
 #' @param filename File name prefix.
 #' @return Saves two csv files with _data.csv and _coef.csv suffixes. 
-gen_data <- function(n, p, prop_zero, eps, folder, filename){
+gen_data <- function(n, p, prop_zero, snr, folder, filename){
 
   # Simulate data
-  data <- sim_data(n, p, prop_zero, eps)
+  data <- sim_data(n, p, prop_zero, snr)
   
   # data file
   df <- as.data.frame(data$x)
   df$y <- data$y
+  df$train <- c(rep(1, n), rep(0, 10*p))
   df <- df %>%
-    select(y, everything())
+    select(train, y, everything())
   write.csv(df, paste0(folder, filename,"_data.csv"), row.names=FALSE)
   
   # coefficients file
-  coef_df <- data.frame(names = c("Intercept", names(df)[2:length(df)]),
+  coef_df <- data.frame(names = c("Intercept", names(df)[3:length(df)]),
                         vals = c(data$intercept, data$coef))
   write.csv(coef_df, paste0(folder,filename,"_coef.csv"), row.names=FALSE)
   
