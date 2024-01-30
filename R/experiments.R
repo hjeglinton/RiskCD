@@ -13,8 +13,6 @@ library(parallel)
 
 source("fasterrisk.R")
 
-
-
 # Register parallel programming
 registerDoParallel(cores=4)
 
@@ -33,7 +31,7 @@ registerDoParallel(cores=4)
 #' @param lambda0 If applicable, lambda0 value used in model. 
 #' @return Dataframe with a single row containing information on dataset, method,
 #' and model metrics. 
-get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA) {
+get_result_row_all_metrics <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA) {
 
   time_secs <- t2 - t1
   non_zeros <- sum(betas[-1] != 0, na.rm = TRUE)
@@ -46,7 +44,8 @@ get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA
   dev <- -2*sum(y*log(pred)+(1-y)*log(1-pred))
   
   # Save ROC object 
-  roc_obj <- roc(y, pred, quiet = TRUE)
+  roc_train <- roc(y)
+  roc_test <- roc(y, pred, quiet = TRUE)
   
   precision <- coords(roc_obj, "best", ret = "precision")[[1]]
   recall <- coords(roc_obj, "best", ret = "recall")[[1]]
@@ -76,6 +75,39 @@ get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA
   
 } 
 
+
+get_result_row <- function(betas, X_train, y_train, pred_train,
+                           X_test, y_test, pred_test, t1, t2, 
+                           file, method, lambda0 = NA) {
+  
+  time_secs <- t2 - t1
+  non_zeros <- sum(betas[-1] != 0, na.rm = TRUE)
+  med_abs <- median(abs(betas[-1]), na.rm = TRUE)
+  max_abs <- max(abs(betas[-1]), na.rm = TRUE)
+  
+  # Save ROC objects
+  roc_train <- roc(y_train, pred_train, quiet = TRUE)
+  roc_test <- roc(y_test, pred_test, quiet = TRUE)
+  
+  # Return results
+  return(data.frame(
+    data = file,
+    n = nrow(X_train), 
+    p = ncol(X_train), 
+    method = method,
+    seconds = as.numeric(difftime(t2, t1, units = "secs")),
+    lambda0 = lambda0,
+    nonzeros = non_zeros,
+    auc_train = roc_train$auc[[1]],
+    auc_test = roc_test$auc[[1]],
+    brier_train = mean((pred_train - as.numeric(y_train))^2),
+    brier_test = mean((pred_test - as.numeric(y_test))^2),
+    med_abs = med_abs,
+    max_abs = max_abs
+  ))
+  
+} 
+
 #' Risk model algorithm experiments
 #' 
 #' Iterates through all csv files in the path and runs risk mod
@@ -83,7 +115,7 @@ get_result_row <- function(betas, X, pred, y, t1, t2, file, method, lambda0 = NA
 #' files are stored as (x)_data.csv and (x)_weights.csv)
 #' @param results_path character path to folder in which to save results
 #' @return results are saved as a csv file results_R.csv to results_path
-run_experiments <- function(data_path, results_path){
+run_experiments <- function(data_path, results_path, random_split = TRUE){
 
   # Files in path
   files <- list.files(data_path)
@@ -95,6 +127,12 @@ run_experiments <- function(data_path, results_path){
     
     # Read in data
     df <- read.csv(paste0(data_path,f))
+    
+    if (colnames(df)[1] == "train") {
+      train <- df$train
+      df <- df %>% select(-train)
+    } 
+    
     y <- df[[1]]
     X <- as.matrix(df[,2:ncol(df)])
 
@@ -107,7 +145,11 @@ run_experiments <- function(data_path, results_path){
     }
     
     # Test train split
-    test_index <- createDataPartition(y, p = 0.3, list = FALSE)
+    if (random_split == TRUE) {
+      test_index <- createDataPartition(y, p = 0.3, list = FALSE)
+    } else {
+      test_index <- which(train == 0)
+    }
     
     X_train <- X[-test_index,]
     X_test <- X[test_index,]
@@ -115,7 +157,7 @@ run_experiments <- function(data_path, results_path){
     y_test <- y[test_index]
     weights_train <- weights[-test_index]
     weights_test <- weights[test_index]
-    
+      
     # Stratify folds 
     foldids <- stratify_folds(y_train, nfolds = 5, seed = 1)
     
@@ -126,10 +168,11 @@ run_experiments <- function(data_path, results_path){
     coef_nllcd <- coef(mod_nllcd) %>% as.vector
     end_nllcd <- Sys.time()
     
-    pred_nllcd <- predict(mod_nllcd, X_test, type = "response")[,1]
-    res_nllcd <- get_result_row(coef_nllcd, X, pred_nllcd, y_test, start_nllcd,
-                                end_nllcd, f, "NLLCD",
-                                lambda0)
+    res_nllcd <- get_result_row(coef_nllcd, X_train, y_train, 
+                                pred_train = predict(mod_nllcd, X_train, type = "response")[,1],
+                                X_test, y_test,
+                                pred_test = predict(mod_nllcd, X_test, type = "response")[,1],
+                                start_nllcd, end_nllcd, f, "NLLCD", lambda0)
     
     # NLLCD - with CV
     start_nllcd_cv <- Sys.time()
@@ -142,16 +185,20 @@ run_experiments <- function(data_path, results_path){
     mod_nllcd_cv_1se <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = cv_results$lambda_1se)
     coef_nllcd_cv_1se <- coef(mod_nllcd_cv_1se) %>% as.vector
 
-    pred_nllcd_cv_min <- predict(mod_nllcd_cv_min, X_test, type = "response")[,1]
-    pred_nllcd_cv_1se <- predict(mod_nllcd_cv_1se, X_test, type = "response")[,1]
+    res_nllcd_cv_min <- get_result_row(coef_nllcd_cv_min, X_train, y_train,
+                                       pred_train = predict(mod_nllcd_cv_min, X_train, type = "response")[,1],
+                                       X_test, y_test,
+                                       pred_test = predict(mod_nllcd_cv_min, X_test, type = "response")[,1],
+                                       start_nllcd_cv, end_nllcd_cv, f, 
+                                       "NLLCD with CV (lambda_min)", cv_results$lambda_min)
 
-
-    res_nllcd_cv_min <- get_result_row(coef_nllcd_cv_min, X, pred_nllcd_cv_min, y_test, start_nllcd_cv,
-                                end_nllcd_cv, f, "NLLCD with CV (lambda_min)",
-                                cv_results$lambda_min)
-
-    res_nllcd_cv_1se <- get_result_row(coef_nllcd_cv_1se, X, pred_nllcd_cv_1se, y_test, start_nllcd_cv,
-                                       end_nllcd_cv, f, "NLLCD with CV (lambda_min)",
+    res_nllcd_cv_1se <- get_result_row(coef_nllcd_cv_1se, 
+                                       X_train, y_train,
+                                       pred_train = predict(mod_nllcd_cv_1se, X_train, type = "response")[,1],
+                                       X_test, y_test,
+                                       pred_test = predict(mod_nllcd_cv_1se, X_test, type = "response")[,1],
+                                       start_nllcd_cv, end_nllcd_cv, f, 
+                                       "NLLCD with CV (lambda_1se)",
                                        cv_results$lambda_1se)
     
     # FasterRisk
@@ -162,7 +209,10 @@ run_experiments <- function(data_path, results_path){
     mod_FR <- run_FR(X_train_FR, y_train, X_test_FR, lb = -10, ub = 10) 
     end_FR <- Sys.time()
     
-    res_FR <- get_result_row(mod_FR$integer_coef, X, mod_FR$pred_test, y_test, 
+    res_FR <- get_result_row(mod_FR$integer_coef, X_train, y_train,
+                             pred_train = mod_FR$pred_train,
+                             X_test, y_test,
+                             pred_test = mod_FR$pred_test,
                              start_FR, end_FR, f, "FasterRisk", NA)
     
     # Lasso
@@ -172,9 +222,11 @@ run_experiments <- function(data_path, results_path){
     end_lasso <- Sys.time()
     
     coef_lasso <- as.vector(coef(mod_lasso, lambda = mod_lasso$lambda.min))
-    pred_lasso <- predict(mod_lasso, X_test, "lambda.min", type = "response")[,1]
     
-    res_lasso <- get_result_row(coef_lasso, X, pred_lasso, y_test,
+    res_lasso <- get_result_row(coef_lasso, X_train, y_train,
+                                pred_train = predict(mod_lasso, X_train, "lambda.min", type = "response")[,1],
+                                X_test, y_test, 
+                                pred_test = predict(mod_lasso, X_test, "lambda.min", type = "response")[,1],
                                 start_lasso, end_lasso, f, "Lasso", 
                                 mod_lasso$lambda.min)
     
@@ -190,10 +242,12 @@ run_experiments <- function(data_path, results_path){
     end_lasso_rounded <- Sys.time()
     
     scores_test <- data.frame(scores = X_test_FR %*% coef_lasso_rounded)
-    pred_lasso_rounded <- predict(mod_scores, scores_test, type = "response")
     
-    res_lasso_rounded <- get_result_row(coef_lasso_rounded, X, pred_lasso_rounded,
-                                        y_test, start_lasso, end_lasso_rounded, 
+    res_lasso_rounded <- get_result_row(coef_lasso_rounded, X_train, y_train,
+                                        pred_train = predict(mod_scores, type = "response"),
+                                        X_test, y_test,
+                                        pred_test = predict(mod_scores, scores_test, type = "response"),
+                                        start_lasso, end_lasso_rounded, 
                                         f, "Rounded Lasso", mod_lasso$lambda.min)
     
     
@@ -206,9 +260,12 @@ run_experiments <- function(data_path, results_path){
     end_glm <- Sys.time()
     
     coef_glm <- mod_glm$coef %>% as.vector()
-    pred_glm <- predict(mod_glm, data.frame(X_test), type = "response")
+
     
-    res_glm <- get_result_row(coef_glm, X, pred_glm, y_test, 
+    res_glm <- get_result_row(coef_glm, X_train, y_train,
+                              pred_train = predict(mod_glm, type = "response"),
+                              X_test, y_test,
+                              pred_test = predict(mod_glm, data.frame(X_test), type = "response"),
                               start_glm, end_glm, f, "LR", NA)
     
     
@@ -223,10 +280,12 @@ run_experiments <- function(data_path, results_path){
     end_glm_rounded <- Sys.time()
     
     scores_test <- data.frame(scores = X_test_FR %*% coef_glm_rounded)
-    pred_glm_rounded <- predict(mod_scores, scores_test, type = "response")
     
-    res_glm_rounded <- get_result_row(coef_glm_rounded, X, pred_glm_rounded,
-                                      y_test, start_glm, end_glm_rounded, 
+    res_glm_rounded <- get_result_row(coef_glm_rounded, X_train, y_train,
+                                      pred_train = predict(mod_scores, type = "response"),
+                                      X_test, y_test,
+                                      pred_test = predict(mod_scores, scores_test, type = "response"), 
+                                      start_glm, end_glm_rounded, 
                                       f, "Rounded LR", NA)
     
     # Combine evaluation metrics
@@ -251,12 +310,12 @@ run_experiments <- function(data_path, results_path){
 
 
 # Public datasets
-run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public.csv")
+#run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public.csv", random_split = TRUE)
 
 
 # Simulated data
 
-#run_experiments(data_path = "../data/simulated/", results_path = "../results/simulated/results_sim_withCV.csv")
+run_experiments(data_path = "../data/simulated/", results_path = "../results/simulated/results_sim_SNR_0130.csv", random_split = FALSE)
 
 
 
