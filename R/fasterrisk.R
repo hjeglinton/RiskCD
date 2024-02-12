@@ -1,12 +1,13 @@
-#install.packages("reticulate", repos = "http://cran.us.r-project.org")
-#library(reticulate)
-
-#version <- "3.9.12"
-#install_python(version)
-#virtualenv_create(envname="FasterRisk-environment", version = version)
-#use_virtualenv("FasterRisk-environment")
-
-#py_install("fasterrisk", pip=TRUE, envname="FasterRisk-environment")
+# remove.packages("reticulate")
+# install.packages("reticulate", repos = "http://cran.us.r-project.org")
+# library(reticulate)
+# 
+# version <- "3.9.12"
+# install_python(version)
+# virtualenv_create(envname="FasterRisk-environment", version = version)
+# use_virtualenv("FasterRisk-environment")
+# 
+# py_install("fasterrisk", pip=TRUE, envname="FasterRisk-environment")
 
 fasterrisk <- import("fasterrisk")
 np <- import("numpy", convert=FALSE)
@@ -65,11 +66,13 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub) {
   
   # Calculate predicted probabilities of test set
   RiskScoreClassifier_m = fasterrisk$fasterrisk$RiskScoreClassifier(multiplier, intercept, coefficients)
+  predicted_probs_train <- RiskScoreClassifier_m$predict_prob(X_train)
   predicted_probs_test <- RiskScoreClassifier_m$predict_prob(X_test)
   
   # Return list with logistic model, integer model, and predicted probabilities
   return(list(coef = as.numeric(coefficients/multiplier),
               integer_coef = as.numeric(coefficients),
+              pred_train = predicted_probs_train,
               pred_test = predicted_probs_test))
   
 }
