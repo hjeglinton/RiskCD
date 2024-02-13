@@ -181,7 +181,17 @@ stomp_preprocessing <- function(df) {
                              TRUE ~ 0)) %>%
     
     select(tb, age_group, hiv_pos, diabetes, ever_smoke, past_tb, male, hs_less,
-           num_symptoms, two_weeks_symp)
+           two_weeks_symp, num_symptoms)
+  
+  
+  # All factors
+  df[] <- lapply(df, function(x){return(as.factor(x))})
+  df$age_group <- relevel(df$age_group, ref="[55,99)")
+  levels(df$num_symptoms) <- c(0, 1, 2, 3, 4)
+  
+  # Single imputation (mode)
+  df <- df %>%
+    mutate_all(mode_imputation)
   
   return(df)
   
