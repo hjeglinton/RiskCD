@@ -1,0 +1,172 @@
+---
+title: "Predicting TB Risk Using a Risk Score Model"
+date: "February 2024"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#devtools::install_github("hjeglinton/riskscores", build_vignettes = TRUE)
+
+library(knitr)
+library(xtable)
+library(glmnet)
+library(pROC)
+library(tableone)
+library(glmnet)
+library(caret)
+library(gridExtra)
+#library(kableExtra)
+library(gtsummary)
+library(riskscores)
+
+
+
+
+```
+
+# Data Preprocessing 
+
+
+
+```{r}
+# read in raw data 
+kharitode <- read.csv("../../data/tb/Kharitodestudy.csv")
+stomp <- read.csv("../../data/tb/STOMPstudy.csv")
+
+```
+
+
+
+```{r, warning = FALSE}
+# run pre-processing steps
+setwd("/Users/hannaheglinton/Documents/GitHub/thesis/R")
+source('tb_preprocessing.R')
+
+### Derivation Data 
+deriv_df <- kharitode_preprocessing(kharitode)
+
+der_matrix <- model.matrix(tb ~ ., data=deriv_df)
+der_matrix <- cbind(der_matrix, tb = as.numeric(as.vector(deriv_df$tb)))
+
+X_der <- as.matrix(der_matrix[,-ncol(der_matrix)])
+y_der <- der_matrix[,ncol(der_matrix)]
+
+
+### Validation Data
+val_df <- stomp_preprocessing(stomp)
+
+val_matrix <- model.matrix(tb ~ ., data=val_df)
+val_matrix <- cbind(val_matrix, tb = as.numeric(as.vector(val_df$tb)))
+
+X_val <- as.matrix(val_matrix[,-ncol(val_matrix)])
+y_val <- val_matrix[,ncol(val_matrix)]
+
+
+
+# set fold ids
+foldids <- stratify_folds(y_der, nfolds = 10, seed = 1)
+
+```
+
+# Rounded Lasso Model Fitting
+
+```{r}
+ # Lasso
+
+mod_lasso <- cv.glmnet(X_der[,-1], y_der, foldids = foldids, alpha = 1, family = "binomial") 
+
+coef_lasso <- coef(mod_lasso, lambda = mod_lasso$lambda.min)
+
+coef_lasso_vec <- as.vector(coef_lasso)
+
+# Rounded Lasso 
+scalar <- median(coef_lasso_vec[coef_lasso_vec != 0][-1])
+
+b0_lasso_scaled <- coef_lasso_vec[1]/scalar
+coef_lasso_rounded <- c(b0_lasso_scaled, 
+                        round(coef_lasso_vec[-1]/scalar, 0))
+
+data.frame(variable = coef_lasso@Dimnames[[1]], coef = coef_lasso_rounded)
+
+scores <- as.vector(X_der %*% coef_lasso_rounded)
+lasso_score_mod <- glm(y_der ~ scores, family = "binomial")
+
+
+```
+
+
+
+# NLLCD Model Fitting 
+
+
+
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
+
+# CV
+cv_results <- cv_risk_mod(X_der, y_der, foldids = foldids, a = -5, b = 5, nlambda = 25)
+
+plot(cv_results, lambda_text = FALSE) + 
+  labs(title = "Figure 1. Cross Validation Results")
+
+
+
+```
+
+```{r, warning = FALSE}
+lambda0 <- cv_results$lambda_min
+
+mod <- risk_mod(X_der, y_der, lambda0 = lambda0, a = -5, b = 5)
+
+```
+
+```{r}
+# get score card
+mod$model_card
+
+
+# get score-risk map
+mod$score_map
+
+
+```
+
+# Model Validation 
+
+```{r}
+# Get lasso predicted probabilities 
+scores_lasso_val <- data.frame(scores = X_val %*% coef_lasso_rounded)
+lasso_pred_der <- predict(lasso_score_mod, type = "response")
+lasso_pred_val <- predict(lasso_score_mod, scores_lasso_val, type = "response")
+
+# Get NLLCD predicted probabilities
+nllcd_pred_der <- predict(mod, type = "response")[,1]
+nllcd_pred_val <- predict(mod, X_val, type = "response")[,1]
+
+# Calculate AUC
+auc_lasso_der <- roc(y_der, lasso_pred_der, quiet = TRUE)$auc[[1]] # 0.7902
+auc_lasso_val <- roc(y_val, lasso_pred_val, quiet = TRUE)$auc[[1]] # 0.7252
+
+auc_nllcd_der <- roc(y_der, nllcd_pred_der, quiet = TRUE)$auc[[1]] #0.7891
+auc_nllcd_val <- roc(y_val, nllcd_pred_val, quiet = TRUE)$auc[[1]] #0.7368
+
+
+```
+
+
+
+
+\pagebreak
+
+# Code Appendix
+
+
+
+```{r  ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE, include=TRUE}
+
+```
+
+
