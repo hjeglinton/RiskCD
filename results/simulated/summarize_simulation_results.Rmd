@@ -1,0 +1,146 @@
+---
+title: "Simulation Results"
+author: "Hannah Eglinton"
+date: "2024-02-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(knitr)
+```
+
+```{r}
+setwd("/Users/hannaheglinton/Documents/GitHub/thesis/R")
+
+results <- read.csv("../results/simulated/results_sim_SNR_0202.csv") %>%
+  select(-c(n,p)) %>%
+  separate(col = 1, 
+           into = c("sim", "n", "p", "prop_zero", "snr", "iter", "data"),
+           sep = "_", convert = TRUE)  %>%
+  filter(method != "NLLCD with CV (lambda_1se)")
+
+results$method[results$method == "NLLCD with CV (lambda_min)"] <- "NLLCD with CV"
+results$method <- factor(results$method, levels = c("LR", "Rounded LR", "Lasso", "Rounded Lasso", "FasterRisk", "NLLCD", "NLLCD with CV"))
+
+```
+
+
+# Sparsity
+
+```{r}
+sparsity_results <- results %>%
+  mutate(sparsity = p - floor(p*prop_zero),
+         rel_error = (nonzeros - sparsity)/sparsity) %>%
+  select(sparsity, p, prop_zero, method, nonzeros, rel_error) 
+
+
+sparsity_results %>%
+  filter(prop_zero == 0.5) %>%
+  group_by(method) %>%
+  summarize(rel_bias = mean(rel_error), sd = sd(rel_error)) %>%
+  ggplot() + 
+    geom_bar(aes(x = method, y = rel_bias), stat = "identity", width = 0.2) + 
+    geom_errorbar(aes(x = method, ymin = rel_bias - sd/2, ymax = rel_bias + sd/2), width = 0.1) + 
+    geom_hline(yintercept = 0) +
+    labs(x = "", y = "Relative Bias", title = "Model sparsity with 50% noise predictors") + 
+    theme_bw()
+
+
+```
+
+```{r}
+sparsity_results %>%
+  filter(prop_zero == 0) %>%
+  group_by(method) %>%
+  summarize(rel_bias = mean(rel_error), sd = sd(rel_error)) %>%
+  ggplot() + 
+    geom_bar(aes(x = method, y = rel_bias), stat = "identity", width = 0.2) + 
+    geom_errorbar(aes(x = method, ymin = rel_bias - sd/2, ymax = rel_bias + sd/2), width = 0.1) + 
+    geom_hline(yintercept = 0) +
+    labs(x = "", y = "Relative Bias", title = "Model sparsity with 0% noise predictors") + 
+    theme_bw()
+```
+
+
+# Computation Time
+
+```{r}
+time_results <- results %>%
+  select(p, n, method, seconds) %>%
+  filter(method %in% c("FasterRisk", "NLLCD", "NLLCD with CV")) %>%
+  unite("size", 1:2, sep = "_", remove = FALSE)
+
+time_results$size <- factor(time_results$size, levels = unique(time_results$size))
+
+time_results %>%
+  group_by(n, method) %>%
+  summarize(avg_time = mean(seconds), sd = sd(seconds)) %>%
+  ggplot() + 
+    geom_point(aes(x = n, y = avg_time, color = method)) + 
+    geom_line(aes(x = n, y = avg_time, color = method)) + 
+    geom_errorbar(aes(x = n, ymin = avg_time - sd/2, ymax = avg_time + sd/2, color = method), width = 100, alpha = 0.8) + 
+    theme_bw()
+
+
+time_results %>%
+  group_by(n, method) %>%
+  summarize(avg_time = mean(seconds), sd = sd(seconds)) %>%
+  ggplot(aes(x = n, y = avg_time, fill = method)) + 
+    geom_bar(stat = "identity", position = "dodge") + 
+    #geom_errorbar(aes(x = n, ymin = avg_time - sd/2, ymax = avg_time + sd/2, color = method), width = 100, 
+     #             position = "dodge", color = "darkgrey") + 
+    theme_bw()
+
+
+```
+
+```{r}
+time_results %>%
+  group_by(p, method) %>%
+  summarize(avg_time = mean(seconds), sd = sd(seconds)) %>%
+  ggplot() + 
+    geom_point(aes(x = p, y = avg_time, color = method)) + 
+    geom_line(aes(x = p, y = avg_time, color = method)) + 
+    geom_errorbar(aes(x = p, ymin = avg_time - sd/2, ymax = avg_time + sd/2, color = method), width = 1, alpha = 0.8) + 
+    theme_bw()
+```
+
+
+
+# AUC 
+
+```{r}
+auc_results <- results %>%
+  group_by(n, p, snr, method) %>%
+  summarize(mean_auc_test = mean(auc_test), sd_test = sd(auc_test), mean_auc_train = mean(auc_train), sd_train = sd(auc_train)) 
+
+auc_table <- auc_results %>%
+  select(n, p, snr, method, mean_auc_test) %>%
+  mutate(mean_auc_test = round(mean_auc_test, 3)) %>%
+  pivot_wider(names_from = "method", values_from = "mean_auc_test")
+
+kable(auc_table)
+```
+
+
+# % Best Integer Method 
+
+```{r}
+integer_methods <- c("FasterRisk", "NLLCD", "Rounded Lasso", "Rounded LR", "NLLCD with CV")
+
+perc_best <- results %>%
+  arrange(desc(auc_test)) %>%
+  group_by(n, p, prop_zero, snr, iter) %>%
+  slice(1) %>%
+  #group_by(n, p, snr) %>%
+  summarize(FasterRisk = round(100*mean(method == "FasterRisk"),0), 
+            NLLCD = round(100*mean(method == "NLLCD" | 
+                                   method == "NLLCD with CV (lambda_1se)" |
+                                   method == "NLLCD with CV (lambda_min)"),0),
+            `Rounded Lasso` = round(100*mean(method == "Rounded Lasso"),0),
+            `Rounded LR` = round(100*mean(method == "Rounded LR"), 0)) %>%
+  pivot_longer(3:6, names_to = "method", values_to = "perc_best")
+```
+
