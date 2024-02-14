@@ -16,8 +16,8 @@ sim_data <- function(n, p, prop_zero, snr){
   p_zero <- floor(p*prop_zero)
   p_nonzero <- p - p_zero
   
-  coef_small <- runif(floor(p_nonzero*(3/4)), 0.5, 1.5)
-  coef_large <- runif(ceiling(p_nonzero*(1/4)), 3, 5)
+  coef_small <- runif(floor(p_nonzero*(3/4)), 0.2, 1.5)
+  coef_large <- runif(ceiling(p_nonzero*(1/4)), 2, 5)
   coef <- c(coef_small, coef_large, rep(0, p_zero))
   
   # Simulate covariates
