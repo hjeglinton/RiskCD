@@ -6,93 +6,83 @@ results <- read.csv("../results/simulated/results_sim_SNR_0202.csv") %>%
            into = c("sim", "n", "p", "prop_zero", "snr", "iter", "data"),
            sep = "_", convert = TRUE) 
 
-View(results %>%
-       group_by(p, prop_zero) %>%
-       summarize(mean(nonzeros)))
 
+LR_AUC <- results %>%
+  filter(method == "LR") %>%
+  group_by(n, p) %>%
+  summarize(LR_AUC = round(mean(auc_test),3))
 
-summary1 <- results %>%
-  filter(method %in% c("LR", "Rounded LR", "FasterRisk", "NLLCD")) %>%
-  group_by(n, p, prop_zero, method) %>%
-  summarize(seconds_mean = mean(seconds),
-            seconds_sd = sd(seconds),
-            nonzeros_mean = mean(nonzeros),
-            nonzeros_sd = sd(nonzeros),
-            auc_test_mean = mean(auc_test),
-            auc_test_sd = sd(auc_test)) %>%
-  mutate(across(seconds_mean:auc_test_sd, \(x) round(x,3))) %>%
-  unite("seconds", 5:6, sep = " (") %>%
-  unite("nonzeros", 6:7, sep = " (") %>%
-  unite("auc", 7:8, sep = " (")
+Lasso_AUC <- results %>%
+  filter(method == "Lasso") %>%
+  group_by(n, p) %>%
+  summarize(Lasso_AUC = round(mean(auc_test),3))
 
-
-
-
-integer_methods <- c("FasterRisk", "NLLCD", "Rounded Lasso", "Rounded LR", "NLLCD with CV (lambda_min)")
-
-summary %>%
-  filter(method %in% integer_methods)
-
-
-perc_best <- summary %>%
-  filter(method != "LR" & method != "Lasso") %>%
+prop_best_noCV <- results %>%
+  filter(method %in% c("Rounded LR", "FasterRisk", "NLLCD")) %>%
+  group_by(n, p, prop_zero, snr, iter) %>%
   arrange(desc(auc_test)) %>%
-  group_by(n, p, prop_zero, snr) %>%
   slice(1) %>%
   group_by(n, p) %>%
-  summarize(FasterRisk = round(100*mean(method == "FasterRisk"),0), 
-            NLLCD = round(100*mean(method == "NLLCD" | 
-                                   method == "NLLCD with CV (lambda_1se)" |
-                                   method == "NLLCD with CV (lambda_min)"),0),
-            `Rounded Lasso` = round(100*mean(method == "Rounded Lasso"),0),
-            `Rounded LR` = round(100*mean(method == "Rounded LR"), 0)) %>%
-  pivot_longer(3:6, names_to = "method", values_to = "perc_best")
+  summarize(FR_propbest = round(100*mean(method == "FasterRisk"),0), 
+            NLLCD_propbest = round(100*mean(method == "NLLCD"),0),
+            roundedLR_propbest = round(100*mean(method == "Rounded LR"), 0))
 
-
-
-perc_best %>%
-  filter()
-
-
-
-FRvsNLLCD <- results %>%
-  filter(method == "FasterRisk" | method == "NLLCD") %>%
-  arrange(desc(auc_test)) %>%
+prop_best_CV <- results %>%
+  filter(method %in% c("Rounded Lasso", "NLLCD with CV (lambda_min)")) %>%
   group_by(n, p, prop_zero, snr, iter) %>%
+  arrange(desc(auc_test)) %>%
   slice(1) %>%
-  #group_by(n, p) %>%
-  summarize(winner = ifelse(mean(method == "FasterRisk") == 1, "FasterRisk", "NLLCD"),
-            seconds = mean(seconds))
+  group_by(n, p) %>%
+  summarize(roundedLasso_propbest = round(100*mean(method == "Rounded Lasso"),0), 
+            NLLCD_CV_propbest = round(100*mean(method == "NLLCD with CV (lambda_min)"),0))
 
+RoundedLR_summary <- results %>%
+  filter(method == "Rounded LR") %>%
+  group_by(n, p, method) %>%
+  summarize(roundedLR_AUC = round(mean(auc_test), 3), roundedLR_nonzeros = round(mean(nonzeros),1)) %>%
+  select(-method) 
 
-FRvsNLLCD %>%
-  group_by(winner) %>%
-  summarize(avg_n = mean(as.numeric(n)), 
-            avg_p = mean(as.numeric(p)), 
-            avg_prop_zero = mean(as.numeric(prop_zero)), 
-            avg_snr = mean(as.numeric(snr)),
-            avg_seconds = mean(seconds))
+FasterRisk_summary <- results %>%
+  filter(method == "FasterRisk") %>%
+  group_by(n, p, method) %>%
+  summarize(FR_AUC = round(mean(auc_test), 3), FR_nonzeros = round(mean(nonzeros),1)) %>%
+  select(-method) 
 
+RoundedLasso_summary <- results %>%
+  filter(method == "Rounded Lasso") %>%
+  group_by(n, p, method) %>%
+  summarize(RoundedLasso_AUC = round(mean(auc_test), 3), RoundedLasso_nonzeros = round(mean(nonzeros),1)) %>%
+  select(-method) 
 
-View(FRvsNLLCD %>%
-  group_by(n, p, prop_zero, snr) %>%
-  summarize(perc_FR = mean(winner == "FasterRisk")))
+NLLCD_summary <- results %>%
+  filter(method == "NLLCD") %>%
+  group_by(n, p, method) %>%
+  summarize(NLLCD_AUC = round(mean(auc_test), 3), NLLCD_nonzeros = round(mean(nonzeros),1)) %>%
+  select(-method) 
 
+NLLCD_CV_summary <- results %>%
+  filter(method == "NLLCD with CV (lambda_min)") %>%
+  group_by(n, p, method) %>%
+  summarize(NLLCD_CV_AUC = round(mean(auc_test), 3), NLLCD_CV_nonzeros = round(mean(nonzeros),1)) %>%
+  select(-method) 
 
-summary %>%
-  filter(method %in% integer_methods) %>%
-  group_by(prop_zero, method) %>%
-  summarize(auc_test = mean(auc_test)) %>%
-ggplot() +
-  geom_point(aes(x = prop_zero, y = auc_test, color = method)) 
+summary_noCV <- left_join(RoundedLR_summary, FasterRisk_summary) %>%
+  left_join(NLLCD_summary) %>%
+  left_join(prop_best_noCV) %>%
+  left_join(LR_AUC) %>%
+  select(n, p, LR_AUC, 
+         roundedLR_AUC, roundedLR_nonzeros, roundedLR_propbest,
+         FR_AUC, FR_nonzeros, FR_propbest,
+         NLLCD_AUC, NLLCD_nonzeros, NLLCD_propbest)
 
+summary_CV <- left_join(Lasso_AUC, RoundedLasso_summary) %>%
+  left_join(NLLCD_CV_summary) %>%
+  left_join(prop_best_CV) %>%
+  select(n, p, Lasso_AUC, 
+         RoundedLasso_AUC, RoundedLasso_nonzeros, roundedLasso_propbest,
+         NLLCD_CV_AUC, NLLCD_CV_nonzeros, NLLCD_CV_propbest)
 
-#write.csv(summary, "../sim_data/results_summary_0930.csv")
-
-summary %>%
-ggplot() +
-  geom_violin(aes(x = method, y = auc_test))
-
-
+write.csv(summary_noCV, "../results/simulated/summary_noCV.csv")
+write.csv(summary_CV, "../results/simulated/summary_CV.csv")
 
 
