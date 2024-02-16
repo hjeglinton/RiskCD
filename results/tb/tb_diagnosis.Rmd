@@ -52,7 +52,7 @@ der_matrix <- model.matrix(tb ~ ., data=deriv_df)
 der_matrix <- cbind(der_matrix, tb = as.numeric(as.vector(deriv_df$tb)))
 
 X_der <- as.matrix(der_matrix[,-ncol(der_matrix)])
-y_der <- der_matrix[,ncol(der_matrix)]
+y_der <- der_matrix[,ncol(der_matrix)] %>% as.vector
 
 
 ### Validation Data
@@ -62,7 +62,7 @@ val_matrix <- model.matrix(tb ~ ., data=val_df)
 val_matrix <- cbind(val_matrix, tb = as.numeric(as.vector(val_df$tb)))
 
 X_val <- as.matrix(val_matrix[,-ncol(val_matrix)])
-y_val <- val_matrix[,ncol(val_matrix)]
+y_val <- val_matrix[,ncol(val_matrix)] %>% as.vector()
 
 
 
@@ -79,6 +79,7 @@ foldids <- stratify_folds(y_der, nfolds = 10, seed = 1)
 mod_lasso <- cv.glmnet(X_der[,-1], y_der, foldids = foldids, alpha = 1, family = "binomial") 
 
 coef_lasso <- coef(mod_lasso, lambda = mod_lasso$lambda.min)
+coef_lasso
 
 coef_lasso_vec <- as.vector(coef_lasso)
 
@@ -120,38 +121,84 @@ plot(cv_results, lambda_text = FALSE) +
 lambda0 <- cv_results$lambda_min
 
 mod <- risk_mod(X_der, y_der, lambda0 = lambda0, a = -5, b = 5)
+mod_l0 <- risk_mod(X_der, y_der, lambda0 = 0, a = -5, b = 5)
 
+# get score card
+mod$model_card
 ```
 
 ```{r}
-# get score card
-mod$model_card
+# Baik 2020 coefficients 
+coef_baik <- data.frame(variable = names(mod$beta),
+                        coef = c(0, 0, 1, 1, 0, 2, 1, 0, 0, 1, 0,
+                                 1, 1, 2, 3))
 
-
-# get score-risk map
-mod$score_map
-
-
+baik_scores <- as.vector(X_der %*% coef_baik$coef)
+baik_score_mod <- glm(y_der ~ baik_scores, family = "binomial")
+  
+  
 ```
+
+```{r}
+# Compare coefficients
+
+data.frame(variable = names(mod$beta), 
+           lasso = round(coef_lasso_vec,3), 
+           rounded_lasso = coef_lasso_rounded,
+           baik = coef_baik$coef,
+           nllcd = as.vector(mod$beta)) %>%
+  slice(-1)
+```
+
+
 
 # Model Validation 
 
 ```{r}
-# Get lasso predicted probabilities 
+# Get lasso predicted probabilities
+lasso_pred_der <- predict(mod_lasso, X_der[,-1], type = "response") %>% as.vector
+lasso_pred_val <- predict(mod_lasso, X_val[,-1], type = "response") %>% as.vector
+
+# Get rlasso predicted probabilities 
 scores_lasso_val <- data.frame(scores = X_val %*% coef_lasso_rounded)
-lasso_pred_der <- predict(lasso_score_mod, type = "response")
-lasso_pred_val <- predict(lasso_score_mod, scores_lasso_val, type = "response")
+rlasso_pred_der <- predict(lasso_score_mod, type = "response") %>% as.vector
+rlasso_pred_val <- predict(lasso_score_mod, scores_lasso_val, type = "response") %>% as.vector
+
+# Get Baik predicted probabilities
+scores_baik_val <- data.frame(baik_scores = X_val %*% coef_baik$coef)
+baik_pred_der <- predict(baik_score_mod, type = "response") %>% as.vector
+baik_pred_val <- predict(baik_score_mod, scores_baik_val, type = "response") %>% as.vector
 
 # Get NLLCD predicted probabilities
 nllcd_pred_der <- predict(mod, type = "response")[,1]
 nllcd_pred_val <- predict(mod, X_val, type = "response")[,1]
 
-# Calculate AUC
-auc_lasso_der <- roc(y_der, lasso_pred_der, quiet = TRUE)$auc[[1]] # 0.7902
-auc_lasso_val <- roc(y_val, lasso_pred_val, quiet = TRUE)$auc[[1]] # 0.7252
+# Format AUC text
+get_auc_text <- function(ci_auc_obj) {
+  return(paste0(round(ci_auc_obj[[2]],3), " (", 
+                round(ci_auc_obj[[1]],3), ", ", 
+                round(ci_auc_obj[[3]],3), ")"))
+}
 
-auc_nllcd_der <- roc(y_der, nllcd_pred_der, quiet = TRUE)$auc[[1]] #0.7891
-auc_nllcd_val <- roc(y_val, nllcd_pred_val, quiet = TRUE)$auc[[1]] #0.7368
+
+# Calculate AUC
+auc_lasso_der <- roc(y_der, lasso_pred_der, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+auc_lasso_val <- roc(y_val, lasso_pred_val, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+
+auc_rlasso_der <- roc(y_der, rlasso_pred_der, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+auc_rlasso_val <- roc(y_val, rlasso_pred_val, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+
+auc_baik_der <- roc(y_der, baik_pred_der, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+auc_baik_val <- roc(y_val, baik_pred_val, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+
+auc_nllcd_der <- roc(y_der, nllcd_pred_der, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+auc_nllcd_val <- roc(y_val, nllcd_pred_val, quiet = TRUE) %>% ci.auc() %>% get_auc_text()
+
+
+
+data.frame(Model = c("Lasso", "Rounded Lasso", "Baik 2020", "NLLCD"),
+           AUC_der = c(auc_lasso_der, auc_rlasso_der, auc_baik_der, auc_nllcd_der),
+           AUC_val = c(auc_lasso_val, auc_rlasso_val, auc_baik_val, auc_nllcd_val))
 
 
 ```
