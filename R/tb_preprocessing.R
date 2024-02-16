@@ -142,10 +142,14 @@ kharitode_preprocessing <- function(tb_df) {
     tb_df$cough+tb_df$night_sweats
   tb_df <- tb_df %>% select(-c(night_sweats, weight_loss, cough, fever))
   
+  # Exclude participants with no TB symptoms
+  tb_df <- tb_df %>%
+    filter(num_symptoms != 0)
+  
   # All factors
   tb_df[] <- lapply(tb_df, function(x){return(as.factor(x))})
   tb_df$age_group <- relevel(tb_df$age_group, ref="[55,99)")
-  
+
   # Single imputation (mode)
   tb_df <- tb_df %>%
     mutate_all(mode_imputation)
@@ -187,7 +191,6 @@ stomp_preprocessing <- function(df) {
   # All factors
   df[] <- lapply(df, function(x){return(as.factor(x))})
   df$age_group <- relevel(df$age_group, ref="[55,99)")
-  levels(df$num_symptoms) <- c(0, 1, 2, 3, 4)
   
   # Single imputation (mode)
   df <- df %>%
