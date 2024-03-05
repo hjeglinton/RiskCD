@@ -2,9 +2,13 @@ suppressMessages(library(tidyverse))
 
 tb_preprocessing <- function(tb_df) {
   
-  # we choose to look at whether 100% of doses are taken on time 
-  # this is a fairly balanced outcome
-  tb_df$adherence_outcome <- (tb_df$PCTadherence_sensi < 100)
+  # define binary outcome
+  tb_df$adherence_outcome <- ifelse(tb_df$PCTadherence_sensi < 100, 1, 0)
+  
+  # drop subsequent regimens
+  tb_df <- tb_df %>%
+    filter(regimen == "first") %>%
+    select(-regimen)
   
   # drop X, patient id, and other variables we don't want to include in our model
   tb_df <- tb_df %>% select(-c(X, # index 
@@ -13,7 +17,8 @@ tb_preprocessing <- function(tb_df) {
                                PCTadherence_sensi, 
                                PTID2, # study ID
                                hunger_freq, # "not including in the model"
-                               health_ctr, # 71 health centers 
+                               health_ctr, # 71 health centers ,
+                               daily_cont, # not in dictionary
                                post_tb_pt_work)) #  not in dictionary 
   
   # family support - simplify by taking median response to get almost integer value
@@ -58,6 +63,7 @@ tb_preprocessing <- function(tb_df) {
   # change to categorical
   tb_df$current_sx_none <- as.factor(tb_df$current_sx_none) 
   tb_df$tto_anterior_tb <- as.factor(tb_df$tto_anterior_tb) 
+  tb_df$monitor1 <- as.factor(tb_df$monitor1)
   
   # make continuous var updates
   tb_df <- tb_df %>%
@@ -67,19 +73,23 @@ tb_preprocessing <- function(tb_df) {
            ace_cat = case_when(ace_score == 0 ~ "0",
                                ace_score == 1 ~ "1",
                                ace_score > 1 ~ "> 1"),
-           tx_mos_cat = case_when(tx_mos <= 6 ~ "<= 6 mos", 
-                                  TRUE ~ "> 6 mos")) %>%
+           self_eff_cat = case_when(self_eff <= 12 ~ "<= 12",
+                                    self_eff > 12 ~ "> 12"),
+           stig_tot_cat = case_when(stig_tot <= 30 ~ "<= 30",
+                                    stig_tot > 30 ~ "> 30"),
+           phq9_tot_cat = case_when(phq9_tot <= 10 ~ "<= 10",
+                                    phq9_tot > 10 ~ "> 10")) %>%
     select(-c(self_eff, tx_mos, audit_tot, stig_tot, phq9_tot, age_BLchart,
-              ace_score)) %>%
+              ace_score, case_finding)) %>%
     na.omit()
   
   # some categorical variable have levels with few observations
   # drop ram and regular_drug since only 5 observations in class 1
   tb_df <- tb_df %>% select(-c(ram, regular_drug))
   
-  # education levels and monitor1 could be combined but we drop since not 
+  # education levels could be combined but we drop since not 
   # included in data documentation and unclear best way to relevel
-  tb_df <- tb_df %>% select(-c(edu_level_mom, edu_level_dad, monitor1))
+  tb_df <- tb_df %>% select(-c(edu_level_mom, edu_level_dad))
   
   return(tb_df)
 }
