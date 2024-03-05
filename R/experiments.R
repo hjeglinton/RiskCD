@@ -310,12 +310,12 @@ run_experiments <- function(data_path, results_path, random_split = TRUE){
 
 
 # Public datasets
-#run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public.csv", random_split = TRUE)
+run_experiments(data_path = "../data/public/", results_path = "../results/public/results_public.csv", random_split = TRUE)
 
 
 # Simulated data
 
-run_experiments(data_path = "../data/simulated/", results_path = "../results/simulated/results_sim_SNR_0130.csv", random_split = FALSE)
+#run_experiments(data_path = "../data/simulated/", results_path = "../results/simulated/results_sim_SNR_0202.csv", random_split = FALSE)
 
 
 
