@@ -128,6 +128,34 @@ mod$model_card
 ```
 
 ```{r}
+# plot score vs risk 
+
+
+predict_df <- data.frame(score = predict(mod, type = "score"),
+                         response = predict(mod, type = "response"))
+
+score_v_risk <- ggplot() + 
+  #geom_point(data = predict_df, aes(x = score, y = response), size = 1) +
+  geom_function(data = data.frame(x = seq(0,20)), aes(x), 
+                fun = function(x) get_risk(mod, x), size = 1, alpha = 0.9) + 
+  labs(x = "RiskCD Score", y = "Risk of TB", title = "") +
+  #scale_x_continuous(breaks = seq(-60, 50, 10)) + 
+  #scale_y_continuous(breaks = seq(0, 1, 0.10)) + 
+  #geom_point(aes(x = -14, y = get_risk(mod, -14)), color = "blue", 
+  #           shape = 3, size = 3) + 
+  #geom_point(aes(x = 18, y = get_risk(mod, 18)), color = "blue", 
+  #           shape = 3, size = 3) + 
+
+  theme_bw() + 
+  theme(axis.text = element_text(size = 10), panel.grid.minor.y = element_blank()) + 
+  scale_x_continuous(breaks = seq(0, 20, 2)) + 
+  scale_y_continuous(breaks = seq(0, 1, 0.1))
+
+ggsave(score_v_risk, width = 7, height = 5, dpi = 300, filename = "score_v_risk_plot.png")
+```
+
+
+```{r}
 # Baik 2020 coefficients 
 coef_baik <- data.frame(variable = names(mod$beta),
                         coef = c(0, 0, 1, 1, 0, 2, 1, 0, 0, 1, 0,
