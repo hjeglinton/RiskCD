@@ -17,3 +17,7 @@ data/simulated/*
 data/public/*
 .DS_Store
 data/*
+*.tgn
+*.xlsx
+*.html
+results/simulated/.RData
