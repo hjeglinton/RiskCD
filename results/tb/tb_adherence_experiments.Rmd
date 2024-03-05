@@ -1,0 +1,247 @@
+---
+title: "Predicting TB Medication Adherence Using a Risk Score Model"
+date: "February 2024"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#devtools::install_github("hjeglinton/riskscores", build_vignettes = TRUE)
+
+library(knitr)
+library(xtable)
+library(glmnet)
+library(pROC)
+library(tableone)
+library(glmnet)
+library(caret)
+library(gridExtra)
+#library(kableExtra)
+library(gtsummary)
+library(riskscores)
+#source('risk.R')
+
+set.seed(5)
+
+```
+
+# Data Preprocessing 
+
+
+
+```{r}
+
+raw_data <- read.csv("../../data/tb/Peru_TB_data.csv") 
+
+```
+
+
+
+
+
+```{r, warning = FALSE}
+setwd("../../R")
+source('tb_preprocessing.R')
+tb_df <- tb_preprocessing(raw_data) 
+tb_mat <- tb_as_matrix(tb_df)
+
+```
+
+# Model Fitting 
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
+X <- as.matrix(tb_mat[,-ncol(tb_mat)])
+y <- tb_mat[,ncol(tb_mat)]
+
+
+test_index <- createDataPartition(y, p = 0.25, list = FALSE)
+X_train <- X[-test_index,]
+X_test <- X[test_index,]
+y_train <- y[-test_index]
+y_test <- y[test_index]
+
+```
+
+
+```{r}
+# GLM 
+df_train_glm <- data.frame(y = y_train, X_train[,-1])
+df_test_glm <- data.frame(X_test[,-1])
+
+glm_mod <- glm(y ~ ., family = binomial, data = df_train_glm)
+
+glm_pred <- predict(glm_mod, df_test_glm, type = "response")
+
+roc(y_test, glm_pred, quiet = TRUE)$auc # 0.533
+
+```
+
+
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
+# get folds for CV
+folds <- stratify_folds(y_train, nfolds = 5, seed = 1)
+```
+
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
+# Lasso
+lasso_cv <- cv.glmnet(x=X_train[,-1], y=y_train, alpha=1, type.measure = "deviance", foldid = folds)
+#plot(lasso_cv)
+lasso_mod <- glmnet(x=X_train[,-1], y=y_train, lambda=lasso_cv$lambda.min, alpha=1, foldids = folds)
+coef_lasso <- coef(lasso_mod)
+lasso_probs <- as.vector(predict(lasso_mod, newx=X_test[,-1]))
+
+roc(y_test, lasso_probs, quiet = TRUE)$auc # 0.6283
+
+
+# Rounded Lasso
+scalar <- ifelse(is_empty(coef_lasso[coef_lasso != 0][-1]),
+                 1,
+                 median(coef_lasso[coef_lasso != 0][-1], na.rm = TRUE))
+b0_lasso_scaled <- coef_lasso[1]/scalar
+coef_lasso_rounded <- c(b0_lasso_scaled, 
+                        round(coef_lasso[-1]/scalar, 0))
+scores <- as.vector(X_train %*% coef_lasso_rounded)
+mod_scores <- glm(y_train ~ scores, family = "binomial")
+
+test_scores <- data.frame(scores = as.vector(X_test %*% coef_lasso_rounded))
+lasso_rounded_probs <- predict(mod_scores, test_scores, type = "response")
+
+roc(y_test, lasso_rounded_probs, quiet = TRUE)$auc # 0.6305
+
+
+
+
+```
+
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
+get_auc <- function(mod, X_test, y_test) {
+  y_pred <- predict(mod, X_test, type = "response")[,1]
+  auc <- roc(y_test, y_pred, quiet = TRUE)$auc
+  return(auc)
+}
+  
+
+get_lasso_auc <- function(X_train, y_train, X_test, y_test){
+  
+  # Lasso
+  lasso_cv <- cv.glmnet(x=X_train[,-1], y=y_train, alpha=1, type.measure = "deviance", foldid = folds)
+  lasso_mod <- glmnet(x=X_train[,-1], y=y_train, lambda=lasso_cv$lambda.min, alpha=1, foldids = folds)
+  coef_lasso <- coef(lasso_mod)
+  lasso_probs <- as.vector(predict(lasso_mod, newx=X_test[,-1]))
+  
+  lasso_auc <- roc(y_test, lasso_probs, quiet = TRUE)$auc %>%
+    round(3)
+  
+  # Rounded Lasso
+  scalar <- ifelse(is_empty(coef_lasso[coef_lasso != 0][-1]),
+                   1,
+                   median(coef_lasso[coef_lasso != 0][-1], na.rm = TRUE))
+  b0_lasso_scaled <- coef_lasso[1]/scalar
+  coef_lasso_rounded <- c(b0_lasso_scaled, 
+                          round(coef_lasso[-1]/scalar, 0))
+  scores <- as.vector(X_train %*% coef_lasso_rounded)
+  mod_scores <- glm(y_train ~ scores, family = "binomial")
+  
+  test_scores <- data.frame(scores = as.vector(X_test %*% coef_lasso_rounded))
+  lasso_rounded_probs <- predict(mod_scores, test_scores, type = "response")
+  lasso_rounded_auc <- roc(y_test, lasso_rounded_probs, quiet = TRUE)$auc%>%
+    round(3)
+  
+  return(list(lasso_auc = lasso_auc, lasso_rounded_auc = lasso_rounded_auc))
+  
+  
+}
+
+experiments <- function(cv_id, cv_foldids){
+  
+  X_train <- X[cv_foldids != cv_id, ]
+  y_train <- y[cv_foldids != cv_id] 
+  X_test <- X[cv_foldids == cv_id, ]
+  y_test <- y[cv_foldids == cv_id] 
+  
+  folds <- stratify_folds(y_train, nfolds = 5, seed = 1)
+  
+  cv_results <- cv_risk_mod(X_train, y_train, foldids = folds, a = -10, b = 10, nlambda = 25, shuffle = TRUE, seed = 1)
+
+  zero_start <- cv_risk_mod(X_train, y_train, beta = rep(0, ncol(X)), foldids = folds, nlambda = 25, shuffle = TRUE, seed = 1)
+  
+  one_start <- cv_risk_mod(X_train, y_train, beta = rep(1, ncol(X)), foldids = folds, nlambda = 25, shuffle = TRUE, seed = 1)
+  
+  lasso_start <- cv_risk_mod(X_train, y_train, beta = as.vector(coef_lasso), foldids = folds, nlambda = 25, shuffle = TRUE, seed = 1)
+  
+  random_start <- cv_risk_mod(X_train, y_train, beta = sample(-10:10, ncol(X), replace = TRUE), foldids = folds, nlambda = 25, shuffle = TRUE, seed = 1)
+  
+  mod_glm_0 <- risk_mod(X_train, y_train, lambda0 = 0, a = -10, b = 10, shuffle = TRUE, seed = 1)
+  mod_glm_min <- risk_mod(X_train, y_train, lambda0 = cv_results$lambda_min, a = -10, b = 10, shuffle = TRUE, seed = 1)
+  
+  mod_0_0 <- mod_b0 <- risk_mod(X_train, y_train, lambda0 = 0, beta = rep(0, ncol(X_train)), shuffle = TRUE, seed = 1)
+  mod_0_min <- mod_b0 <- risk_mod(X_train, y_train, lambda0 = zero_start$lambda_min, beta = rep(0, ncol(X_train)), shuffle = TRUE, seed = 1)
+  
+  mod_1_0 <- risk_mod(X_train, y_train, lambda0 = 0, beta = rep(1, ncol(X_train)), shuffle = TRUE, seed = 1)
+  mod_1_min <- risk_mod(X_train, y_train, lambda0 = one_start$lambda_min, beta = rep(1, ncol(X_train)), shuffle = TRUE, seed = 1)
+  
+  mod_lasso_0 <- risk_mod(X_train, y_train, lambda0 = 0, beta = as.vector(coef_lasso), shuffle = TRUE, seed = 1)
+  mod_lasso_min <- risk_mod(X_train, y_train, lambda0 = lasso_start$lambda_min, beta = as.vector(coef_lasso), shuffle = TRUE, seed = 1)
+  
+  mod_random_0 <- risk_mod(X_train, y_train, lambda0 = 0, beta = sample(-10:10, ncol(X), replace = TRUE), shuffle = TRUE, seed = 1)
+  mod_random_min <- risk_mod(X_train, y_train, lambda0 = random_start$lambda_min, beta = sample(-10:10, ncol(X), replace = TRUE), shuffle = TRUE, seed = 1)
+  
+  
+  
+  results <- data.frame(start = c(rep("GLM", 2), rep("0", 2), rep("1", 2), rep("random", 2), rep("lasso", 2)),
+             lambda = rep(c("no CV", "CV"), 5),
+             auc = c(get_auc(mod_glm_0, X_test, y_test),
+                     get_auc(mod_glm_min, X_test, y_test),
+                     get_auc(mod_0_0, X_test, y_test),
+                     get_auc(mod_0_min, X_test, y_test),
+                     get_auc(mod_1_0, X_test, y_test),
+                     get_auc(mod_1_min, X_test, y_test),
+                     get_auc(mod_random_0, X_test, y_test),
+                     get_auc(mod_random_min, X_test, y_test),
+                     get_auc(mod_lasso_0, X_test, y_test),
+                     get_auc(mod_lasso_min, X_test, y_test)),
+             lasso_auc = rep(get_lasso_auc(X_train, y_train, X_test, y_test)$lasso_auc, 10),
+             lasso_rounded_auc = rep(get_lasso_auc(X_train, y_train, X_test, y_test)$lasso_rounded_auc, 10))
+  
+  return(results)
+  
+}
+
+res_df <- data.frame(start = NA, lambda = NA, auc = NA, lasso_auc = NA, lasso_rounded_auc = NA)
+
+cv_foldids <- stratify_folds(y, nfolds = 4, seed = 5)
+for (cv_id in unique(cv_foldids)) {
+  
+  exp_results <- experiments(cv_id, cv_foldids)
+  print(exp_results)
+  
+  res_df <- bind_rows(res_df, exp_results)
+  
+}
+```
+
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
+exp_results1 <- experiments(1, cv_foldids)
+exp_results2 <- experiments(2, cv_foldids)
+exp_results3 <- experiments(3, cv_foldids)
+exp_results4 <- experiments(4, cv_foldids)
+
+exp_results1
+exp_results2
+exp_results3
+exp_results4
+
+```
+
+
+
+
+
+
+
