@@ -21,3 +21,4 @@ data/*
 *.xlsx
 *.html
 results/simulated/.RData
+results/simulated/.Rhistory
