@@ -10,19 +10,13 @@ output:
 knitr::opts_chunk$set(echo = FALSE)
 #devtools::install_github("hjeglinton/riskscores", build_vignettes = TRUE)
 
-library(knitr)
-library(xtable)
+
 library(glmnet)
 library(pROC)
-library(tableone)
-library(glmnet)
 library(caret)
-library(gridExtra)
-#library(kableExtra)
-library(gtsummary)
 library(riskscores)
-#source('risk.R')
-
+library(probably)
+library(gridExtra)
 set.seed(1)
 
 ```
@@ -41,7 +35,7 @@ raw_data <- read.csv("../../data/tb/Peru_TB_data.csv")
 
 
 
-```{r}
+```{r, warning = FALSE}
 setwd("../../R")
 source('tb_preprocessing.R')
 tb_df <- tb_preprocessing(raw_data) 
@@ -49,284 +43,184 @@ tb_mat <- tb_as_matrix(tb_df)
 
 ```
 
-# Model Fitting 
+
 
 ```{r, out.width="75%", fig.align = 'center', warning = FALSE}
-
 X <- as.matrix(tb_mat[,-ncol(tb_mat)])
 y <- tb_mat[,ncol(tb_mat)]
 
+```
+
+
+```{r, out.width="75%", fig.align = 'center', warning = FALSE}
 # CV
 # get folds
-folds <- stratify_folds(y, nfolds = 5, seed = 5)
+folds <- stratify_folds(y, nfolds = 5, seed = 1)
 
-
-lasso_cv <- cv.glmnet(x=X[,-1], y=y, alpha=1, type.measure = "deviance")
-
-cv_results <- cv_risk_mod(X, y, foldids = folds, a = -10, b = 10, nlambda = 25)
-
-plot(cv_results, lambda_text = FALSE) + 
-  labs(title = "Figure 1. Cross Validation Results")
-
-
-```
-
-
-
-```{r, warning = FALSE}
-
-mod_cd <- risk_mod(X, y, lambda0 = exp(-5.7), a = -10, b = 10)
-mod_l0 <- risk_mod(X, y, lambda0 = exp(-6.7), a = -10, b = -10)
-
-```
-
-
-
-
-
-
-
-# Model Evaluation 
-
-
-We compared the performance of our risk score model to logistic regression, lasso regression, and rounded logistic regression. The coefficients for each of these models are reported in Table 3. As expected, the logistic regression model assigns a non-zero coefficient value to each covariate, while the lasso model shrinks many coefficients to zero. 
-
-```{r, include = FALSE}
-
-coef_vals <- matrix(0, ncol=4, nrow=ncol(X)-1)
-
-# risk model prediction
-coef_cd <- coef(mod_cd)
-cd_probs <- predict(mod_cd, type = "response")
-
-
-# lasso 
-lasso_res <- cv.glmnet(x=X[,-1], y=y, alpha=1)
-lasso_mod <- glmnet(x=X[,-1], y=y, lambda=lasso_res$lambda.min, alpha=1, foldids = folds)
+# Lasso 
+lasso_res <- cv.glmnet(x=X[,-1], y=y, alpha=1, foldid = folds)
+lasso_mod <- glmnet(x=X[,-1], y=y, lambda=lasso_res$lambda.min, alpha=1, foldid = folds)
 coef_lasso <- coef(lasso_mod)
-lasso_probs <- as.vector(predict(lasso_mod, newx=X[,-1]))
 
-# Rounded Lasso 
+# Rounded Lasso
 scalar <- ifelse(is_empty(coef_lasso[coef_lasso != 0][-1]),
                  1,
                  median(coef_lasso[coef_lasso != 0][-1], na.rm = TRUE))
 b0_lasso_scaled <- coef_lasso[1]/scalar
 coef_lasso_rounded <- c(b0_lasso_scaled, 
                         round(coef_lasso[-1]/scalar, 0))
-scores <- as.vector(X %*% coef_lasso_rounded)
-mod_scores <- glm(y ~ scores, family = "binomial")
-lasso_rounded_probs <- predict(mod_scores, type = "response")
+rlasso_scores <- as.vector(X[,-1] %*% coef_lasso_rounded[-1])
+rlasso_mod <- glm(y ~ rlasso_scores, family = "binomial")
 
+# RISKCD CV
+cv_results <- cv_risk_mod(X, y, foldids = folds, a = -10, b = 10, nlambda = 25, beta = as.vector(coef_lasso), seed = 1)
 
-# discrimination
-cd_roc <- roc(factor(tb_df$adherence_outcome), cd_probs[,1], quiet = TRUE) %>% ci.auc()
-lasso_roc <- roc(factor(tb_df$adherence_outcome), lasso_probs, quiet = TRUE) %>% ci.auc()
-round_roc <- roc(factor(tb_df$adherence_outcome), lasso_rounded_probs, quiet = TRUE) %>% ci.auc()
+plot(cv_results, lambda_text = FALSE) + 
+  labs(title = "Figure 1. Cross Validation Results")
 
+# RISKCD
+mod_cd <- risk_mod(X, y, lambda0 = cv_results$lambda_min, a = -10, b = 10, seed = 1, beta = as.vector(coef_lasso))
+coef_cd <- coef(mod_cd)
 
 ```
 
 
 
-
-
-
 ```{r}
-data.frame(l_ci = c(lasso_roc[[1]], 
-                   round_roc[[1]], 
-                   cd_roc[[1]]),
-           auc = c(lasso_roc[[2]], 
-                   round_roc[[2]], 
-                   cd_roc[[2]]),
-           u_ci = c(lasso_roc[[3]], 
-                   round_roc[[3]], 
-                   cd_roc[[3]]),
-           row.names = c("Lasso", "Rounded Lasso", "RiskCD")) %>%
-  round(4)
-```
 
+# Compare coefficients
 
-```{r}
-data.frame(lasso = as.vector(coef_lasso),
-           rounded_lasso = as.vector(coef_lasso_rounded),
-           cd = as.vector(coef_cd),
-           row.names = dimnames(X)[[2]]) %>%
+data.frame(lasso = round(as.vector(coef_lasso),3),
+           r_lasso = as.vector(coef_lasso_rounded), 
+           cd = coef_cd) %>%
   slice(-1) %>%
-  filter_all(any_vars(. != 0)) %>%
-  kable(digits = 3, col.names = c("Lasso", "Rounded Lasso", "CD"),
-      booktabs = T, caption = "Model Coefficients") 
-```
+  filter_all(any_vars(.!=0))
+  
 
-
-
-
-```{r, out.width = "75%", fig.align='center'}
-
-
-predict_df <- data.frame(score = predict(mod, type = "score"),
-                         response = predict(mod, type = "response"))
-
-score_v_risk <- ggplot() + 
-  #geom_point(data = predict_df, aes(x = score, y = response), size = 1) +
-  geom_function(data = data.frame(x = seq(-8,12)), aes(x), 
-                fun = function(x) get_risk(mod, x), size = 1, alpha = 0.9) + 
-  labs(x = "RiskCD Score", y = "Risk of Suboptimal Adherence", title = "") +
-  theme_bw() +  
-  theme(axis.text = element_text(size = 10), panel.grid.minor.y = element_blank()) + 
-  scale_x_continuous(breaks = seq(-8, 12, 2)) + 
-  scale_y_continuous(breaks = seq(0, 1, 0.1))
-
-ggsave(score_v_risk, width = 7, height = 5, dpi = 300, filename = "score_v_risk_adherence.png")
 
 ```
 
+```{r}
+# Compare AUC 
 
-# Conclusion
-
-Despite a relatively small sample size, our example model output made sense intuitively. Our model identified higher stigma and having to take the medication in-person at a clinic as factors increasing the risk of non-adherence. Having never had COVID and having family supervision of treatment decreased the risk of non-adherence. Although the performance of this model should be validated with new data, it may still help with identifying which factors are the most important in predicting non-adherence. 
-
-
-\pagebreak
-
-# EDA Appendix
-
-
-
-### Figure A1. Outcome Distributions
-```{r, warning = FALSE, message = FALSE, fig.height = 3}
-# outcome distributions
-p1 <- ggplot(raw_data) +
-  geom_histogram(aes(x = PCTadherence)) + 
-  lims(y = c(0, 210)) + 
-  theme_bw()
-
-p2 <- ggplot(raw_data) +
-  geom_histogram(aes(x = PCTadherence_sensi)) + 
-  lims(y = c(0, 210)) + 
-  theme_bw()
-
-grid.arrange(p1, p2, ncol = 2)
-```
-
-### Figure A2. Continuous Covariate Distributions
-
-```{r, warning = FALSE, message = FALSE, fig.height = 5}
-p3 <- ggplot(raw_data) +
-  geom_histogram(aes(x = self_eff)) + 
-  theme_bw()
-
-p4 <- ggplot(raw_data) +
-  geom_histogram(aes(x = tx_mos)) + 
-  theme_bw()
-
-p5 <- ggplot(raw_data) +
-  geom_histogram(aes(x = audit_tot)) + 
-  theme_bw()
-
-p6 <- ggplot(raw_data) +
-  geom_histogram(aes(x = stig_tot)) + 
-  theme_bw()
-
-p7 <- ggplot(raw_data) +
-  geom_histogram(aes(x = phq9_tot)) + 
-  theme_bw()
-
-p8 <- ggplot(raw_data) +
-  geom_histogram(aes(x = age_BLchart)) + 
-  theme_bw()
-
-p9 <- ggplot(raw_data) +
-  geom_histogram(aes(x = ace_score)) + 
-  theme_bw()
-
-grid.arrange(p3, p4, p5, p6, p7, p8, ncol = 2)
-```
-
-### Table A1. Processed Variable Summary
-
-```{r, message = FALSE}
-tbl_summary(tb_df)#%>%
-   #as_kable_extra(booktabs = TRUE, 
-                # longtable = TRUE) #%>%
- # kableExtra::kable_styling(font_size = 9, 
-                           # latex_options = c("repeat_header", "HOLD_position"))
-
-```
-
-
-```{r, eval = FALSE, message = FALSE}
-
-
-# load risk model files
-X <- tb_matrix[, -ncol(tb_matrix)]
-y <- tb_matrix[, ncol(tb_matrix)]
-
-coef_vals <- matrix(0, ncol=3, nrow=ncol(X)-1)
-
-# risk model prediction 
-risk_output_cv <- cv_risk_mod(X, y, a=-5, b=5)
-risk_output <- risk_mod(X, y, a=-5, b=5, lambda0=risk_output_cv$lambda_min)
-coef_vals[,1] <- risk_output$beta[-1]
-risk_probs <- predict(risk_output$glm_mod, type="response")
-risk_pred <- as.factor(ifelse(risk_probs < 0.5, FALSE, TRUE))
-
-# glm prediction
-glm_mod <- glm(y~X-1, family = "binomial")
-coef_vals[, 2] <- coef(glm_mod)[-1]
-glm_probs<- predict(glm_mod, type="response")
-glm_pred <- as.factor(ifelse(glm_probs < 0.5, FALSE, TRUE))
-
-# lasso prediction
-
-lasso_res <- cv.glmnet(x=X[,-1], y=y, alpha=1)
-lasso_mod <- glmnet(x=X[,-1], y=y, lambda=lasso_res$lambda.min, alpha=1)
-coef_vals[,3] <- coef(lasso_mod)[-1]
+cd_probs <- predict(mod_cd, type = "response")[,1]
 lasso_probs <- as.vector(predict(lasso_mod, newx=X[,-1]))
-lasso_pred <- as.factor(ifelse(lasso_probs < 0.5, FALSE, TRUE))
+rlasso_probs <- predict(rlasso_mod, type = "response")
 
-print(coef_vals)
+cd_roc <- roc(y, cd_probs, quiet = TRUE)
+lasso_roc <- roc(y, lasso_probs, quiet = TRUE)
+round_roc <- roc(y, rlasso_probs, quiet = TRUE) 
 
-# confusion matrices
-confusionMatrix(as.factor(tb_df$adherence_outcome), risk_pred)
-confusionMatrix(as.factor(tb_df$adherence_outcome), glm_pred)
-confusionMatrix(as.factor(tb_df$adherence_outcome), lasso_pred)
+cd_roc$auc
+cd_roc %>% ci.auc()
 
-# discrimination
-roc(as.factor(tb_df$adherence_outcome), risk_probs)
-roc(as.factor(tb_df$adherence_outcome), glm_probs)
-roc(as.factor(tb_df$adherence_outcome), lasso_probs)
+lasso_roc$auc
+lasso_roc %>% ci.auc
 
-# find risk score probs to summarize
-tb_df$scores <- (X[,-1] %*% risk_output$beta[-1])
-ggplot(tb_df)+geom_histogram(aes(x=scores, fill=adherence_outcome), alpha=0.5)
+round_roc$auc
+round_roc %>% ci.auc
 
-# for each score find predicted probability and also find percent class 1
-range_scores <- range(tb_df$scores)
-all_scores <- seq(range_scores[1], range_scores[2])
-vals <- risk_output$gamma*(risk_output$beta[1]+range_scores)
-probs <- exp(vals)/(1+exp(vals))
-props <- tb_df %>% 
-  mutate(rnd_scores = floor(scores)) %>%
-  group_by(rnd_scores) %>% 
-  summarize(prop = sum(adherence_outcome)/n()) 
+# Brier score
+cd_brier <- mean((cd_probs - y)^2) # 0.1219
+lasso_brier <- mean((lasso_probs - y)^2) # 0.1352
+round_brier <- mean((rlasso_probs - y)^2) # 0.1293
+```
 
-ggplot()+geom_line(aes(x=range_scores, y=probs)) + 
-  geom_point(aes(x=props$rnd_scores,y=props$prop)) + 
-  labs(x="Score", y="Predicted or Observed Probability")
+
+
+```{r}
+# Compare calibration
+cd_scores <- predict(mod_cd, type = "score")
+
+cd_cal <- data.frame(score = cd_scores,
+                     outcome = y,
+                     est_risk_cd = cd_probs) %>%
+  mutate(score_group = case_when((score <= -11) ~ -11,
+                                 (score > -11 & score <= -9) ~ -9,
+                                 (score > -9 & score <= -7) ~ -7,
+                                 (score > -7 & score <= -3) ~ -3,
+                                 (score > -3 & score <= 4) ~ score,
+                                 (score > 4 & score <= 6) ~ 6,
+                                 (score > 6) ~ 7)) %>%
+  group_by(score_group) %>%
+  summarize(obs_risk = mean(outcome), est_risk_cd = mean(est_risk_cd),n = n())
 
 
 
 ```
 
 
-\pagebreak
+```{r}
 
-# Code Appendix
+rlasso_cal <- data.frame(score = rlasso_scores,
+                     outcome = y,
+                     est_risk_rlasso = rlasso_probs) %>%
+  mutate(score_group = case_when((score <= -9) ~ -9,
+                                 (score > -9 & score <= -7) ~ -7,
+                                 (score > -7 & score <= -5) ~ -5,
+                                 (score > -5 & score <= -4) ~ -4,
+                                 (score > -4 & score <= -2) ~ -2,
+                                 (score > -2 & score <= 0) ~ score,
+                                 (score > 0 & score <= 2) ~ 2,
+                                 (score > 2 & score <= 4) ~ 4,
+                                 (score > 4 & score <= 10) ~ 10,
+                                 (score > 10) ~ 16)) %>%
+  group_by(score_group) %>%
+  summarize(obs_risk = mean(outcome), est_risk_rlasso = mean(est_risk_rlasso),n = n())
 
-
-
-```{r  ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE, include=TRUE}
 
 ```
 
+
+```{r}
+ggplot() + 
+  geom_abline(slope = 1) + 
+  geom_line(aes(x = est_risk_cd, y = obs_risk), data = cd_cal, color = "blue") + 
+  geom_line(aes(x = est_risk_rlasso, y = obs_risk), data = rlasso_cal, color= "red") + 
+  theme_bw() + 
+  labs(x = "Predicted Risk", y = "Observed Risk")
+```
+
+```{r}
+
+
+
+
+# Calibration plot
+cal_data <- data.frame(y, X[,-1], riskcd = cd_probs, rlasso = rlasso_probs, lasso = lasso_probs) #%>%
+  #pivot_longer(cols = c("riskcd", "rlasso"), values_to = "pred", names_to = "model")
+
+
+cal_plot_riskcd <- cal_data %>%
+  cal_plot_logistic(y, riskcd) + labs(x = "Observed Risk", y = "", title = "RiskCD")
+
+cal_plot_rlasso <- cal_data %>%
+  cal_plot_logistic(y, rlasso) + labs(x = "Observed Risk", y = "Estimated Risk", title = "Rounded Lasso")
+
+cal_plot_grid <- grid.arrange( cal_plot_rlasso, cal_plot_riskcd, ncol = 2)
+
+ggsave(cal_plot_grid, width = 7, height = 5, dpi = 300, filename = "adherence_cal.png")
+
+
+```
+
+
+
+```{r}
+# Compare objective functions
+
+obj_fcn(X, y, gamma = 1, beta = coef_lasso_rounded, weights = rep(1, nrow(X)), lambda0 = cv_results$lambda_min)
+
+obj_fcn(X, y, gamma = mod_cd$gamma, beta = mod_cd$beta, weights = rep(1, nrow(X)), lambda0 = cv_results$lambda_min)
+
+
+```
+
+```{r}
+# Match scores to risk 
+
+data.frame(score = seq(-1, 12)) %>%
+  mutate(risk = round(get_risk(mod_cd, score),3)) %>%
+  t()
+```
 
