@@ -14,42 +14,83 @@ library(ggpubr)
 ```
 
 ```{r}
-setwd("/Users/hannaheglinton/Documents/GitHub/thesis/R")
 
-results <- read.csv("../results/simulated/results_sim_SNR_0202.csv") %>%
-  select(-c(n,p)) %>%
-  separate(col = 1, 
-           into = c("sim", "n", "p", "prop_zero", "snr", "iter", "data"),
-           sep = "_", convert = TRUE)  %>%
-  filter(method != "NLLCD with CV (lambda_1se)")
+raw_noCV <- read.csv("results_sim_0309_noCV.csv")
+raw_CDCV <- read.csv("results_sim_0309_CV.csv")
+raw_FR_noCV <- read.csv("results_sim_0309_FR_noCV.csv")
+raw_FR_k10 <- read.csv("results_sim_0309_FR_k10.csv")
 
-results$method[results$method == "NLLCD with CV (lambda_min)"] <- "RiskCD with CV"
-results$method[results$method == "NLLCD"] <- "RiskCD"
-results$method <- factor(results$method, levels = c("LR", "Rounded LR", "Lasso", "Rounded Lasso", "FasterRisk", "RiskCD", "RiskCD with CV"))
+raw <- bind_rows(raw_noCV, raw_CDCV, raw_FR_noCV, raw_FR_k10)
 
+raw$method[raw$method == "NLLCD with CV (lambda_min)"] <- "RiskCD-CV"
+raw$method[raw$method == "NLLCD"] <- "RiskCD"
+raw$method <- factor(raw$method, levels = c("LR", "Rounded LR", "Lasso", "Rounded Lasso", "FasterRisk", "FasterRisk-k10", "RiskCD", "RiskCD-CV"))
 ```
+
+
+
+
 
 
 # Sparsity
 
+
+
 ```{r}
-sparsity_results <- results %>%
-  mutate(sparsity = p - floor(p*prop_zero),
-         rel_error = (nonzeros - sparsity)/sparsity) %>%
-  select(sparsity, p, prop_zero, method, nonzeros, rel_error)
+
+sparsity_results <- raw %>%
+  mutate(nonzero_accuracy = NA)
+
+for (i in 1:nrow(sparsity_results)) {
+  
+  coef_file_name <- str_replace(sparsity_results$data[i], "data", "coef")
+  coef_df <- read.csv(paste0("../../data/simulated/", coef_file_name))[-1,]
+  
+  nonzero_true <- case_when(coef_df$vals == 0 ~ 0,
+                           TRUE ~ 1)
+  
+  observed <- str_split(sparsity_results$which_nonzeros[i], "_")
+  
+  nonzero_obs <- seq(1, length(nonzero_true))
+  nonzero_obs <- case_when(nonzero_obs %in% observed[[1]] ~ 1,
+                           TRUE ~ 0)
+  
+  true_pos <- sum(nonzero_obs == 1 & nonzero_true == 1)
+  true_neg <- sum(nonzero_obs == 0 & nonzero_true == 0)
+  
+  sparsity_results$nonzero_accuracy[i] <- (true_pos + true_neg) / length(nonzero_true)
+
+  
+}
 ```
 
 
+```{r, warning = FALSE}
+results <- sparsity_results %>%
+  select(-c(n,p)) %>%
+  separate(col = 1, 
+           into = c("sim", "n", "p", "prop_zero", "snr", "iter", "data"),
+           sep = "_", convert = TRUE) %>%
+  select(-c(sim, data))
+
+
+```
+
+
+
+
 ```{r}
-noise_plot_50 <- sparsity_results %>%
+nonzero_50 <- results %>%
   filter(prop_zero == 0.5) %>%
   group_by(method) %>%
-  summarize(rel_bias = mean(rel_error), sd = sd(rel_error)) %>%
-  ggplot() + 
-    geom_bar(aes(x = method, y = rel_bias), stat = "identity", width = 0.2) + 
-    geom_errorbar(aes(x = method, ymin = rel_bias - sd/2, ymax = rel_bias + sd/2), width = 0.1) + 
+  summarize(mean_acc = mean(nonzero_accuracy), sd_acc = sd(nonzero_accuracy))
+
+
+ accuracy_plot1 <-  ggplot(nonzero_50) + 
+    geom_bar(aes(x = method, y = mean_acc), stat = "identity", width = 0.2) + 
+    geom_errorbar(aes(x = method, ymin = mean_acc - sd_acc/2, ymax = mean_acc + sd_acc/2), width = 0.1) + 
     geom_hline(yintercept = 0) +
-    labs(x = "", y = "Relative Bias", title = "Model sparsity with 50% noise predictors") + 
+    labs(x = "", y = "Accuracy", title = "Accuracy in Detecting 50% Noise Predictors") + 
     theme_bw() + 
     theme(text = element_text(size = 20))
 
@@ -57,27 +98,76 @@ noise_plot_50 <- sparsity_results %>%
 ```
 
 ```{r}
-noise_plot_0 <- sparsity_results %>%
+nonzero_0 <- results %>%
   filter(prop_zero == 0) %>%
   group_by(method) %>%
-  summarize(rel_bias = mean(rel_error), sd = sd(rel_error)) %>%
-  ggplot() + 
-    geom_bar(aes(x = method, y = rel_bias), stat = "identity", width = 0.2) + 
-    geom_errorbar(aes(x = method, ymin = rel_bias - sd/2, ymax = rel_bias + sd/2), width = 0.1) + 
+  summarize(mean_acc = mean(nonzero_accuracy), sd_acc = sd(nonzero_accuracy))
+
+
+accuracy_plot2 <-  ggplot(nonzero_0) + 
+    geom_bar(aes(x = method, y = mean_acc), stat = "identity", width = 0.2) + 
+    geom_errorbar(aes(x = method, ymin = mean_acc - sd_acc/2, ymax = mean_acc + sd_acc/2), width = 0.1) + 
     geom_hline(yintercept = 0) +
-    labs(x = "", y = "Relative Bias", title = "Model sparsity with 0% noise predictors") + 
+    labs(x = "", y = "Accuracy ", title = "Accuracy in Detecting 0% Noise Predictors") + 
     theme_bw() + 
     theme(text = element_text(size = 20))
 ```
 
 
 ```{r}
-both_sparsity_plots <- ggarrange(noise_plot_0, noise_plot_50, ncol = 1)
-ggsave(both_sparsity_plots, width = 15, height = 10, dpi = 300, filename = "sim_sparsity_plots.png")
+both_sparsity_plots <- ggarrange(accuracy_plot1, accuracy_plot2, ncol = 1)
+ggsave(both_sparsity_plots, width = 15, height = 10, dpi = 300, filename = "sim_nonzero_accuracy_plots.png")
 ```
 
 
 # Computation Time
+
+
+```{r}
+time_results <- results %>%
+  select(p, n, method, seconds) %>%
+  filter(method %in% c("FasterRisk-k10", "RiskCD")) 
+
+
+time_plot_n <- time_results %>%
+  group_by(n, method) %>%
+  summarize(avg_time = mean(seconds), sd = sd(seconds)) %>%
+  ggplot() + 
+    geom_point(aes(x = n, y = avg_time, color = method)) + 
+    geom_line(aes(x = n, y = avg_time, color = method)) + 
+    geom_errorbar(aes(x = n, ymin = avg_time - sd/2, ymax = avg_time + sd/2, color = method), width = 100, alpha = 0.8) + 
+    labs(x = "Number of observations (n)", y = "Seconds", color = "") + 
+    theme_bw() + 
+    scale_color_manual(values = colors) +
+    scale_x_continuous(breaks = c(100, 500, 1000, 5000)) + 
+    scale_y_continuous(breaks = seq(0, 500, 100), limits = c(0, 500)) + 
+    theme(panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+          legend.position = "bottom", text = element_text(size = 20))
+
+time_plot_n
+```
+
+
+```{r}
+time_plot_p <- time_results %>%
+  group_by(p, method) %>%
+  summarize(avg_time = mean(seconds), sd = sd(seconds)) %>%
+  ggplot() + 
+    geom_point(aes(x = p, y = avg_time, color = method)) + 
+    geom_line(aes(x = p, y = avg_time, color = method)) + 
+    geom_errorbar(aes(x = p, ymin = avg_time - sd/2, ymax = avg_time + sd/2, color = method), width = 0.8, alpha = 0.8) + 
+    labs(x = "Number of candidate covariates (p)", y = "", color = "") + 
+    theme_bw() + 
+    scale_color_manual(values = colors) +
+    scale_x_continuous(breaks = c(10, 25, 50)) + 
+    scale_y_continuous(breaks = seq(0, 500, 100), limits = c(0, 500)) + 
+    theme(panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+          legend.position = "bottom", text = element_text(size = 20))
+
+time_plot_p
+```
+
+
 
 ```{r}
 time_results <- results %>%
