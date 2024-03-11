@@ -135,17 +135,9 @@ predict_df <- data.frame(score = predict(mod, type = "score"),
                          response = predict(mod, type = "response"))
 
 score_v_risk <- ggplot() + 
-  #geom_point(data = predict_df, aes(x = score, y = response), size = 1) +
   geom_function(data = data.frame(x = seq(0,20)), aes(x), 
                 fun = function(x) get_risk(mod, x), size = 1, alpha = 0.9) + 
   labs(x = "RiskCD Score", y = "Risk of TB", title = "") +
-  #scale_x_continuous(breaks = seq(-60, 50, 10)) + 
-  #scale_y_continuous(breaks = seq(0, 1, 0.10)) + 
-  #geom_point(aes(x = -14, y = get_risk(mod, -14)), color = "blue", 
-  #           shape = 3, size = 3) + 
-  #geom_point(aes(x = 18, y = get_risk(mod, 18)), color = "blue", 
-  #           shape = 3, size = 3) + 
-
   theme_bw() + 
   theme(axis.text = element_text(size = 10), panel.grid.minor.y = element_blank()) + 
   scale_x_continuous(breaks = seq(0, 20, 2)) + 
@@ -231,6 +223,48 @@ data.frame(Model = c("Lasso", "Rounded Lasso", "Baik 2020", "NLLCD"),
 
 ```
 
+
+
+```{r}
+# Mean absolute difference in estimated risk 
+
+# NLLCD
+nllcd_calibration <- data.frame(score = predict(mod, X_val, type = "score"),
+           outcome = y_val) %>%
+  group_by(score) %>%
+  summarize(obs_risk = mean(outcome)) %>%
+  mutate(est_risk = get_risk(mod, score))
+
+baik_calibration <- data.frame(score = scores_baik_val$baik_scores,
+           outcome = y_val,
+           est_risk = predict(baik_score_mod, scores_baik_val, type = "response")) %>%
+  group_by(score, est_risk) %>%
+  summarize(obs_risk = mean(outcome))
+
+
+
+ggplot() + 
+geom_line(aes(x = est_risk, y = obs_risk), data = nllcd_calibration, color = "green") +
+geom_line(aes(x = est_risk, y = obs_risk), data = baik_calibration, color = "red") + 
+geom_abline(xintercept = 0, yintercept = 0, slope = 1)
+
+
+# Brier scores
+mean((cd_probs - y)^2)
+
+```
+
+```{r}
+# Observed vs predicted probabilities in validation population
+
+data.frame(score = predict(mod, X_val, type = "score")[,1],
+           est_risk = predict(mod, X_val, type = "response")[,1],
+           outcome = y_val
+) %>%
+  group_by(score, est_risk) %>%
+  summarize(obs_risk = mean(outcome), n = n())
+
+```
 
 
 
