@@ -21,6 +21,8 @@ library(gridExtra)
 #library(kableExtra)
 library(gtsummary)
 library(riskscores)
+library(probably)
+
 
 
 
@@ -108,7 +110,7 @@ lasso_score_mod <- glm(y_der ~ scores, family = "binomial")
 ```{r, out.width="75%", fig.align = 'center', warning = FALSE}
 
 # CV
-cv_results <- cv_risk_mod(X_der, y_der, foldids = foldids, a = -5, b = 5, nlambda = 25)
+cv_results <- cv_risk_mod(X_der, y_der, foldids = foldids, a = -10, b = 10, nlambda = 25)
 
 plot(cv_results, lambda_text = FALSE) + 
   labs(title = "Figure 1. Cross Validation Results")
@@ -120,8 +122,7 @@ plot(cv_results, lambda_text = FALSE) +
 ```{r, warning = FALSE}
 lambda0 <- cv_results$lambda_min
 
-mod <- risk_mod(X_der, y_der, lambda0 = lambda0, a = -5, b = 5)
-mod_l0 <- risk_mod(X_der, y_der, lambda0 = 0, a = -5, b = 5)
+mod <- risk_mod(X_der, y_der, lambda0 = lambda0, a = -10, b = 10)
 
 # get score card
 mod$model_card
@@ -143,7 +144,7 @@ score_v_risk <- ggplot() +
   scale_x_continuous(breaks = seq(0, 20, 2)) + 
   scale_y_continuous(breaks = seq(0, 1, 0.1))
 
-ggsave(score_v_risk, width = 7, height = 5, dpi = 300, filename = "score_v_risk_plot.png")
+#ggsave(score_v_risk, width = 7, height = 5, dpi = 300, filename = "score_v_risk_plot.png")
 ```
 
 
@@ -249,9 +250,6 @@ geom_line(aes(x = est_risk, y = obs_risk), data = baik_calibration, color = "red
 geom_abline(xintercept = 0, yintercept = 0, slope = 1)
 
 
-# Brier scores
-mean((cd_probs - y)^2)
-
 ```
 
 ```{r}
@@ -266,6 +264,47 @@ data.frame(score = predict(mod, X_val, type = "score")[,1],
 
 ```
 
+
+```{r}
+# Calibration plots
+
+cal_der <- data.frame(y_der, X_der[,-1], baik_der = baik_pred_der, 
+                      riskcd_der = nllcd_pred_der)
+
+cal_val <- data.frame(y_val, X_val[,-1], baik_val = baik_pred_val, 
+                      riskcd_val = nllcd_pred_val)
+
+cal_der_baik <- cal_der %>%
+  cal_plot_logistic(y_der, baik_der) + 
+  labs(x = "Observed Risk", y = "Estimated Risk", title = "Derivation Data, Baik2020")
+
+cal_der_riskcd <- cal_der %>%
+  cal_plot_logistic(y_der, riskcd_der) + 
+  labs(x = "Observed Risk", y = "Estimated Risk", title = "Derivation Data, RiskCD-CV")
+
+cal_val_baik <- cal_val %>%
+  cal_plot_logistic(y_val, baik_val, smooth = FALSE) + 
+  labs(x = "Observed Risk", y = "Estimated Risk", title = "Validation Data, Baik2020")
+
+cal_val_riskcd <- cal_val %>%
+  cal_plot_logistic(y_val, riskcd_val) + 
+  labs(x = "Observed Risk", y = "Estimated Risk", title = "Validation Data, RiskCD-CV")
+
+cal_arrange <- grid.arrange(cal_der_baik, cal_der_riskcd, cal_val_baik, cal_val_riskcd, ncol = 2)
+ggsave(cal_arrange, width = 7, height = 7, dpi = 300, filename = "diagnosis-calibration.png")
+```
+
+```{r}
+# Brier score
+
+# Validation set
+mean((lasso_pred_val - y_val)^2)
+mean((rlasso_pred_val - y_val)^2)
+mean((baik_pred_val - y_val)^2)
+mean((nllcd_pred_val - y_val)^2)
+
+
+```
 
 
 \pagebreak
