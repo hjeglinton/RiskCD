@@ -2,14 +2,17 @@
 # remove.packages("reticulate")
 #
 # install.packages("reticulate", repos = "http://cran.us.r-project.org")
-# library(reticulate)
-#
-# version <- "3.9.12"
-# install_python(version)
-# virtualenv_create(envname="FasterRisk-environment", version = version)
-# use_virtualenv("FasterRisk-environment")
-#
-# py_install("fasterrisk", pip=TRUE, envname="FasterRisk-environment")
+library(reticulate)
+library(pROC)
+
+version <- "3.9.12"
+install_python(version)
+virtualenv_create(envname="FasterRisk-environment", version = version)
+use_virtualenv("FasterRisk-environment")
+
+py_install("fasterrisk", pip=TRUE, envname="FasterRisk-environment")
+
+
 
 fasterrisk <- import("fasterrisk")
 np <- import("numpy", convert=FALSE)
@@ -25,6 +28,19 @@ get_FR_deviance <- function(mod, y){
   dev <- -2*sum(y*log(p)+(1-y)*log(1-p))
 
   return(dev = dev)
+}
+
+get_FR_auc <- function(mod, y){
+
+  # Get predicted probs and classes
+  p <- mod$pred_test
+
+  # Deviance
+  p[p == 1] <- 0.99999
+  p[p == 0] <- 0.00001
+  auc <- roc(y, p, quiet = TRUE)$auc
+
+  return(auc = auc)
 }
 
 
@@ -82,11 +98,15 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub, k = dim(X_train)[2]-
   predicted_probs_train <- RiskScoreClassifier_m$predict_prob(X_train)
   predicted_probs_test <- RiskScoreClassifier_m$predict_prob(X_test)
 
+  # Calculate logistic loss
+  logistic_loss_train <- RiskScoreClassifier_m$compute_logisticLoss(X_train, y_train)
+
   # Return list with logistic model, integer model, and predicted probabilities
   return(list(coef = as.numeric(coefficients/multiplier),
               integer_coef = as.numeric(coefficients),
               pred_train = predicted_probs_train,
-              pred_test = predicted_probs_test))
+              pred_test = predicted_probs_test,
+              logistic_loss_train = logistic_loss_train))
 
 }
 
@@ -116,7 +136,7 @@ run_FR_CV <- function(X, y, lb, ub, nfolds = 10,
   #if (is.null(k_grid)){
 
   k_max <- dim(X)[2]-1
-  k_min <- 0
+  k_min <- 1
 
   k_grid <- floor(seq(k_max, k_min, length.out=num_k))
 
@@ -142,7 +162,9 @@ run_FR_CV <- function(X, y, lb, ub, nfolds = 10,
     mod <- run_FR(X_train, y_train, X_test,
                   lb = lb, ub = ub, k = k)
 
-    dev <- get_FR_deviance(mod, y_test)
+    #dev <- get_FR_deviance(mod, y_test)
+    #dev <- mod$logistic_loss_train
+    dev <- -1 * get_FR_auc(mod, y_test)
 
     non_zeros <- sum(mod$integer_coef != 0)
     return(c(dev, non_zeros))
