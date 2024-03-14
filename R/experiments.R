@@ -206,9 +206,9 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
 
     # NLLCD - with CV
     if ("riskcd-cv" %in% method) {
-      start_nllcd_cv <- Sys.time()
       cv_results <- cv_risk_mod(X_train, y_train, weights=weights_train,
                                 foldids = foldids, parallel = T)
+      start_nllcd_cv <- Sys.time()
       mod_nllcd_cv_min <- risk_mod(X_train, y_train, weights=weights_train, lambda0 = cv_results$lambda_min)
       coef_nllcd_cv_min <- coef(mod_nllcd_cv_min) %>% as.vector
       end_nllcd_cv <- Sys.time()
@@ -229,7 +229,7 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
 
 
       start_FR <- Sys.time()
-      mod_FR <- run_FR(X_train_FR, y_train, X_test_FR, lb = -10, ub = 10, k = dim(X_train)[2]-1)
+      mod_FR <- run_FR(X_train_FR, y_train, X_test_FR, lb = -10, ub = 10, k = dim(X_train_FR)[2]-1)
       end_FR <- Sys.time()
 
       results <- bind_rows(results,
@@ -244,8 +244,8 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
     if ("fasterrisk-cv" %in% method) {
 
 
+      FR_CV <- run_FR_CV(X_train_FR, y_train, -10, 10, foldids = foldids, parallel = FALSE, k_grid = NULL)
       start_FR_CV <- Sys.time()
-      FR_CV <- run_FR_CV(X_train_FR, y_train, -10, 10, foldids = foldids, parallel = TRUE, k_grid = NULL)
       mod_FR_CV <- run_FR(X_train_FR, y_train, X_test_FR, lb = -10, ub = 10, k = FR_CV$k_min)
       end_FR_CV <- Sys.time()
 
@@ -373,8 +373,10 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
 
 # Simulated data
 
-run_experiments(data_path = "../data/simulated_100_10_0/", results_path = "../results/simulated/results_sim_0309_FR_CV_100_10_0.csv", random_split = FALSE,
-                method = c("fasterrisk-cv"))
+run_experiments(data_path = "../data/simulated/",
+                results_path = "../results/simulated/results_sim_0314_FR_noCV.csv",
+                random_split = FALSE,
+                method = c("fasterrisk"))
 
 
 
