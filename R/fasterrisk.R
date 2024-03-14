@@ -91,7 +91,6 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub, k = dim(X_train)[2]-
   multiplier = multipliers[model_index]
   intercept = sparseDiversePool_beta0_integer[model_index]
   coefficients = np$array(sparseDiversePool_betas_integer[model_index, ])
-  coefficients[0] = intercept
 
   # Calculate predicted probabilities of test set
   RiskScoreClassifier_m = fasterrisk$fasterrisk$RiskScoreClassifier(multiplier, intercept, coefficients)
@@ -205,3 +204,4 @@ run_FR_CV <- function(X, y, lb, ub, nfolds = 10,
   return(final)
 
 }
+
