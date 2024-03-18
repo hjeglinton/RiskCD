@@ -22,3 +22,4 @@ data/*
 *.html
 results/simulated/.RData
 results/simulated/.Rhistory
+R/nohup.out
