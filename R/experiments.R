@@ -254,7 +254,7 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
                                           pred_train = mod_FR_CV$pred_train,
                                           X_test, y_test,
                                           pred_test = mod_FR_CV$pred_test,
-                                          start_FR_CV, end_FR_CV, f, "FasterRisk-CV", NA))
+                                          start_FR_CV, end_FR_CV, f, "FasterRisk-CV", FR_CV$k_min))
     }
 
 
@@ -373,10 +373,10 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
 
 # Simulated data
 
-run_experiments(data_path = "../data/simulated/",
-                results_path = "../results/simulated/results_sim_0314_FR_noCV.csv",
+run_experiments(data_path = "../data/simulated_p50/",
+                results_path = "../results/simulated/results_sim_0317_FR_p50_n100.csv",
                 random_split = FALSE,
-                method = c("fasterrisk"))
+                method = c("fasterrisk-cv"))
 
 
 
