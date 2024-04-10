@@ -77,6 +77,7 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub, k = dim(X_train)[2]-
   m <- fasterrisk$fasterrisk$RiskScoreOptimizer(X = X_train, y = y_train,
                                                 k = k,
                                                 lb = lb, ub = ub)
+
   m$optimize()
 
 
@@ -110,7 +111,7 @@ run_FR <- function(X_train, y_train, X_test = NULL, lb, ub, k = dim(X_train)[2]-
 }
 
 
-run_FR_CV <- function(X, y, lb, ub, nfolds = 10,
+run_FR_CV <- function(X, y, lb = -10, ub = 10, nfolds = 5,
                       num_k = min(floor(dim(X)[2]-1), 25), k_grid = NULL,
                       foldids = NULL, seed = NULL, parallel = FALSE) {
   # Set seed
@@ -132,14 +133,16 @@ run_FR_CV <- function(X, y, lb, ub, nfolds = 10,
   if (num_k > dim(X)[2]-1) stop("num_k greater than number of columns")
 
   # Get k sequence
-  #if (is.null(k_grid)){
+  if (is.null(k_grid)){
 
-  k_max <- dim(X)[2]-1
-  k_min <- 1
+    k_max <- dim(X)[2]-1
+    k_min <- 2
 
-  k_grid <- floor(seq(k_max, k_min, length.out=num_k))
+    k_grid <- floor(seq(k_max, k_min, length.out=num_k))
 
-  #}
+  } else {
+    num_k <- length(k_grid)
+  }
 
   if (length(k_grid) < 1) stop("something wrong with k_grid")
 

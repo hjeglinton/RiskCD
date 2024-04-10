@@ -1,5 +1,4 @@
 library(tidyverse)
-#library(MASS) # for multinomal
 
 
 #' Simulate data and coefficients
@@ -16,9 +15,7 @@ sim_data <- function(n, p, prop_zero, snr){
   p_zero <- floor(p*prop_zero)
   p_nonzero <- p - p_zero
 
-  coef_small <- runif(floor(p_nonzero*(3/4)), 0.2, 1.5)
-  coef_large <- runif(ceiling(p_nonzero*(1/4)), 2, 5)
-  coef <- c(coef_small, coef_large, rep(0, p_zero))
+  coef <- c(runif(p_nonzero, 0, 10), rep(0, p_zero))
 
   # Simulate covariates
   x <- matrix(0, nrow = n + (10*p), ncol = p)
@@ -76,7 +73,7 @@ gen_data <- function(n, p, prop_zero, snr, folder, filename){
 set.seed(5)
 n = c(100, 500, 1000, 5000)
 p = c(10, 25, 50)
-prop_zero = c(0, 0.5)
+prop_zero = c(0.5)
 snr = c(1, 3)
 n_iter = 10
 
@@ -86,7 +83,7 @@ for (j in 1:length(n)){
       for (s in 1:length(snr)){
         for (i in 1:n_iter){
           gen_data(n[j], p[k], prop_zero[l], snr[s],
-                   "~/Documents/GitHub/thesis/data/simulated/",
+                   "~/Documents/GitHub/thesis/data/simulated2/",
                    paste0("sim",'_',n[j],'_',p[k],"_",prop_zero[l],
                           "_",snr[s],"_",i))
         }

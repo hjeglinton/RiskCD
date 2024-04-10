@@ -225,4 +225,25 @@ stomp_preprocessing <- function(df) {
 
 }
 
+compas_preprocesing <- function(df) {
+  
+  # Select variables
+  df <- df %>%
+    dplyr::select(two_year_recid, sex, juv_fel_count, juv_misd_count,
+           juv_other_count, priors_count, c_charge_degree)
+  
+  # Factor
+  df$sex <- as.factor(df$sex)
+  df$c_charge_degree <- as.factor(df$c_charge_degree)
+  
+  # Encode
+  compas_matrix <- model.matrix(two_year_recid ~ ., data = df)
+  compas_matrix <- cbind(two_year_recid = df$two_year_recid, compas_matrix[,-1])
+
+  
+
+  return(compas_matrix)
+  
+}
+
 
