@@ -359,7 +359,7 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
 
 # Simulated data
 
-run_experiments(data_path = "../data/",#"../data/simulated2/",
+run_experiments(data_path = "../data/simulated2/",
                results_path = "../results/simulated/results_sim_0410.csv",
                random_split = FALSE,
                method = c("riskcd", "riskcd-cv",
