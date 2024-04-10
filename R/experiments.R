@@ -1,6 +1,6 @@
 #devtools::install_github("hjeglinton/riskscores", build_vignettes = TRUE)
 
-setwd("~/Documents/GitHub/thesis/R")
+#setwd("~/Documents/GitHub/thesis/R")
 set.seed(1)
 
 library(riskscores)
