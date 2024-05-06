@@ -24,7 +24,7 @@ library(riskscores)
 library(probably)
 
 
-
+set.seed(1)
 
 
 ```
@@ -45,7 +45,7 @@ stomp <- read.csv("../../data/tb/STOMPstudy.csv")
 ```{r, warning = FALSE}
 # run pre-processing steps
 setwd("/Users/hannaheglinton/Documents/GitHub/thesis/R")
-source('tb_preprocessing.R')
+source('preprocessing.R')
 
 ### Derivation Data 
 deriv_df <- kharitode_preprocessing(kharitode)
@@ -86,7 +86,7 @@ coef_lasso
 coef_lasso_vec <- as.vector(coef_lasso)
 
 # Rounded Lasso 
-scalar <- median(coef_lasso_vec[coef_lasso_vec != 0][-1])
+scalar <- median(abs(coef_lasso_vec[coef_lasso_vec != 0][-1]))
 
 b0_lasso_scaled <- coef_lasso_vec[1]/scalar
 coef_lasso_rounded <- c(b0_lasso_scaled, 
@@ -110,7 +110,7 @@ lasso_score_mod <- glm(y_der ~ scores, family = "binomial")
 ```{r, out.width="75%", fig.align = 'center', warning = FALSE}
 
 # CV
-cv_results <- cv_risk_mod(X_der, y_der, foldids = foldids, a = -10, b = 10, nlambda = 25)
+cv_results <- cv_risk_mod(X_der, y_der, foldids = foldids, a = -6, b = 6, nlambda = 25)
 
 plot(cv_results, lambda_text = FALSE) + 
   labs(title = "Figure 1. Cross Validation Results")
@@ -122,7 +122,7 @@ plot(cv_results, lambda_text = FALSE) +
 ```{r, warning = FALSE}
 lambda0 <- cv_results$lambda_min
 
-mod <- risk_mod(X_der, y_der, lambda0 = lambda0, a = -10, b = 10)
+mod <- risk_mod(X_der, y_der, lambda0 = lambda0, a = -6, b = 6)
 
 # get score card
 mod$model_card

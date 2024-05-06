@@ -17,6 +17,8 @@ library(caret)
 library(riskscores)
 library(probably)
 library(gridExtra)
+library(gt)
+library(gtsummary)
 set.seed(1)
 
 ```
@@ -37,12 +39,72 @@ raw_data <- read.csv("../../data/tb/Peru_TB_data.csv")
 
 ```{r, warning = FALSE}
 setwd("../../R")
-source('tb_preprocessing.R')
+source('preprocessing.R')
 tb_df <- tb_preprocessing(raw_data) 
 tb_mat <- tb_as_matrix(tb_df)
 
 ```
 
+```{r, eval=FALSE}
+
+tb_df[] <- lapply(tb_df, function(x){return(as.factor(x))})
+
+adherence_summary <- tbl_summary(tb_df, by = "adherence_outcome",
+            include = c("gender", "age_cat", "concomitant_tb", "lives_w_mom",
+                        "lives_w_parents", "current_sx_none", "pills", "dosis_fijas",
+                        "monoR", "adr_freq", "fam_accompany_dot", "fam_dislikefriends",
+                        "autonomy_obedient", "self_eff_cat", "phq9_tot_cat",
+                        "audit_cat", "tobacco_freq", "drug_use", "ace_cat",
+                        "stig_health_ctr", "stig_tot_cat", "tto_anterior_tb",
+                        "prior_covid", "covid_es", "monitor1", "psych_intervention",
+                        "family_median", "health_svc_median", "motiv_median",
+                        "knowledge_median"),
+            type = list(concomitant_tb ~ "categorical",
+                        lives_w_mom ~ "categorical",
+                        dosis_fijas ~ "categorical",
+                        monoR ~ "categorical",
+                        drug_use ~ "categorical"),
+            label = list(
+              gender = "Gender",
+              concomitant_tb = "Concomitant TB",
+              lives_w_mom = "Lives with mom", 
+              lives_w_parents = "Lives with parents",
+              current_sx_none = "No current symptoms",
+              pills = "Pills",
+              dosis_fijas = "Fixed doses",
+              monoR = "Isoniazid monoresistance",
+              adr_freq = "Frequency of adverse reactions",
+              fam_accompany_dot = "Accompanied by family",
+              fam_dislikefriends = "Family dislikes friends",
+              autonomy_obedient = "Obedient autonomy",
+              tobacco_freq = "Tobacco use",
+              drug_use = "Drug use frequency",
+              stig_health_ctr = "Health center stigma",
+              tto_anterior_tb = "Prior TB treatment",
+              prior_covid = "Prior COVID",
+              covid_es = "COVID concerns",
+              monitor1 = "Treatment administration",
+              psych_intervention = "Psychological intervention",
+              family_median = "Family support",
+              health_svc_median = "Health services",
+              motiv_median = "Motivation",
+              knowledge_median = "TB knowledge",
+              age_cat = "Age",
+              audit_cat = "Alcohol use",
+              ace_cat = "Adverse childhood experiences",
+              self_eff_cat = "Self-efficacy",
+              stig_tot_cat = "Total stigma",
+              phq9_tot_cat = "Depression"
+              
+            )) %>%
+  add_p() %>%
+  as_gt() %>%
+  gt::as_latex() %>%
+  as.character() %>%
+  write_lines(file = "adherence_tab.tex")
+
+
+```
 
 
 ```{r, out.width="75%", fig.align = 'center', warning = FALSE}
@@ -63,9 +125,9 @@ lasso_mod <- glmnet(x=X[,-1], y=y, lambda=lasso_res$lambda.min, alpha=1, foldid 
 coef_lasso <- coef(lasso_mod)
 
 # Rounded Lasso
-scalar <- ifelse(is_empty(coef_lasso[coef_lasso != 0][-1]),
-                 1,
-                 median(coef_lasso[coef_lasso != 0][-1], na.rm = TRUE))
+nonzero_lasso <- coef_lasso[coef_lasso != 0][-1]
+      
+scalar <- max(abs(nonzero_lasso))/10
 b0_lasso_scaled <- coef_lasso[1]/scalar
 coef_lasso_rounded <- c(b0_lasso_scaled, 
                         round(coef_lasso[-1]/scalar, 0))
@@ -128,58 +190,9 @@ round_brier <- mean((rlasso_probs - y)^2) # 0.1293
 
 
 
-```{r}
-# Compare calibration
-cd_scores <- predict(mod_cd, type = "score")
-
-cd_cal <- data.frame(score = cd_scores,
-                     outcome = y,
-                     est_risk_cd = cd_probs) %>%
-  mutate(score_group = case_when((score <= -11) ~ -11,
-                                 (score > -11 & score <= -9) ~ -9,
-                                 (score > -9 & score <= -7) ~ -7,
-                                 (score > -7 & score <= -3) ~ -3,
-                                 (score > -3 & score <= 4) ~ score,
-                                 (score > 4 & score <= 6) ~ 6,
-                                 (score > 6) ~ 7)) %>%
-  group_by(score_group) %>%
-  summarize(obs_risk = mean(outcome), est_risk_cd = mean(est_risk_cd),n = n())
 
 
 
-```
-
-
-```{r}
-
-rlasso_cal <- data.frame(score = rlasso_scores,
-                     outcome = y,
-                     est_risk_rlasso = rlasso_probs) %>%
-  mutate(score_group = case_when((score <= -9) ~ -9,
-                                 (score > -9 & score <= -7) ~ -7,
-                                 (score > -7 & score <= -5) ~ -5,
-                                 (score > -5 & score <= -4) ~ -4,
-                                 (score > -4 & score <= -2) ~ -2,
-                                 (score > -2 & score <= 0) ~ score,
-                                 (score > 0 & score <= 2) ~ 2,
-                                 (score > 2 & score <= 4) ~ 4,
-                                 (score > 4 & score <= 10) ~ 10,
-                                 (score > 10) ~ 16)) %>%
-  group_by(score_group) %>%
-  summarize(obs_risk = mean(outcome), est_risk_rlasso = mean(est_risk_rlasso),n = n())
-
-
-```
-
-
-```{r}
-ggplot() + 
-  geom_abline(slope = 1) + 
-  geom_line(aes(x = est_risk_cd, y = obs_risk), data = cd_cal, color = "blue") + 
-  geom_line(aes(x = est_risk_rlasso, y = obs_risk), data = rlasso_cal, color= "red") + 
-  theme_bw() + 
-  labs(x = "Predicted Risk", y = "Observed Risk")
-```
 
 ```{r}
 
@@ -209,9 +222,9 @@ ggsave(cal_plot_grid, width = 7, height = 5, dpi = 300, filename = "adherence_ca
 ```{r}
 # Compare objective functions
 
-obj_fcn(X, y, gamma = 1, beta = coef_lasso_rounded, weights = rep(1, nrow(X)), lambda0 = cv_results$lambda_min)
+riskscores:::obj_fcn(X, y, gamma = 1, beta = coef_lasso_rounded, weights = rep(1, nrow(X)), lambda0 = cv_results$lambda_min)
 
-obj_fcn(X, y, gamma = mod_cd$gamma, beta = mod_cd$beta, weights = rep(1, nrow(X)), lambda0 = cv_results$lambda_min)
+riskscores:::obj_fcn(X, y, gamma = mod_cd$gamma, beta = mod_cd$beta, weights = rep(1, nrow(X)), lambda0 = cv_results$lambda_min)
 
 
 ```

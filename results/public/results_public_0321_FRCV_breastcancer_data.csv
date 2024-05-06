@@ -1,0 +1,2 @@
+"data","n","p","method","seconds","lambda0","num_nonzeros","which_nonzeros","auc_train","auc_test","brier_train","brier_test","med_abs","max_abs"
+"breastcancer_data.csv",478,9,"FasterRisk-CV",4.38874888420105,9,8,"1_3_4_5_6_7_8_9",0.995892612655515,0.997025580011898,0.022474061260292,0.0217026085841719,3,5
