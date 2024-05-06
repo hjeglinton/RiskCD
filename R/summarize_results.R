@@ -3,14 +3,6 @@ library(tidyverse)
 library(ggpubr)
 
 
-read_FR_CV_p50 <- function(folder) {
-
-  files <- list.files(folder)
-  read_files <- lapply(paste0(folder,"/",files), read.csv)
-  combined_df <- do.call(rbind, read_files)
-
-}
-
 process_results <- function(df = NULL, filepath = NULL) {
 
   if (!is.null(filepath) & is.null(df)) {
@@ -52,10 +44,10 @@ percent_best <- function(results_df, methods) {
   results_compare <- results_df %>%
     select(n, p, prop_zero, snr, iter, method, auc_test) %>%
     filter(method %in% methods) %>%
-    pivot_wider(names_from = "method", values_from = "auc_test") 
-  
+    pivot_wider(names_from = "method", values_from = "auc_test")
+
   method_index <- seq(6, ncol(results_compare))
-  
+
   results_compare[paste0(names(results_compare)[method_index], "_best")] <- 0
 
   for (i in 1:nrow(results_compare)) {
@@ -64,7 +56,7 @@ percent_best <- function(results_df, methods) {
     max_method <- which(round(results_compare[i, method_index],4) == max_auc)
 
     results_compare[i, max_method + max(method_index)] = 1
-    
+
   }
 
   return(results_compare)
@@ -80,8 +72,7 @@ results_CD_CV <- process_results(filepath = "../results/simulated/results_sim_03
 results_FR_noCV <- process_results(filepath = "../results/simulated/results_sim_0318_FR_noCV.csv")
 results_FR_CV_p10 <- process_results(filepath = "../results/simulated/results_sim_0314_FR_CV_p10.csv")
 results_FR_CV_p25 <- process_results(filepath = "../results/simulated/results_sim_0314_FR_CV_p25.csv")
-results_FR_CV_p50_n100 <- read_FR_CV_p50("../results/simulated/FR_p50_n100") %>%
-  process_results()
+results_FR_CV_p50_n100 <- process_results(filepath = "../results/simulated/results_sim_0319_FR_CV_p50.csv")
 results_rounded <- process_results(filepath = "../results/simulated/results_sim_0405_rounded.csv")
 
 #### Table -- no CV ####
@@ -170,9 +161,9 @@ nonzero_50 <- results %>%
 
 
 accuracy_plot1 <-  ggplot(nonzero_50) +
-  geom_bar(aes(x = method, y = mean_acc), stat = "identity", 
+  geom_bar(aes(x = method, y = mean_acc), stat = "identity",
            width = 0.2, fill = "white", color = "black", linewidth = 1) +
-  geom_errorbar(aes(x = method, ymin = mean_acc - sd_acc/2, ymax = mean_acc + sd_acc/2), 
+  geom_errorbar(aes(x = method, ymin = mean_acc - sd_acc/2, ymax = mean_acc + sd_acc/2),
                 width = 0.1, linewidth = 0.75) +
   geom_hline(yintercept = 0) +
   labs(x = "", y = "Accuracy", title = "Accuracy in Detecting 50% Noise Predictors") +
@@ -185,9 +176,9 @@ nonzero_0 <- results %>%
   summarize(mean_acc = mean(nonzero_accuracy), sd_acc = sd(nonzero_accuracy))
 
 accuracy_plot2 <-  ggplot(nonzero_0) +
-  geom_bar(aes(x = method, y = mean_acc), stat = "identity", 
+  geom_bar(aes(x = method, y = mean_acc), stat = "identity",
            width = 0.2, fill = "white", color = "black", linewidth = 1) +
-  geom_errorbar(aes(x = method, ymin = mean_acc - sd_acc/2, ymax = mean_acc + sd_acc/2), 
+  geom_errorbar(aes(x = method, ymin = mean_acc - sd_acc/2, ymax = mean_acc + sd_acc/2),
                 width = 0.1, linewidth = 0.75) +
   geom_hline(yintercept = 0) +
   labs(x = "", y = "Accuracy ", title = "Accuracy in Detecting 0% Noise Predictors") +
