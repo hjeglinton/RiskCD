@@ -1,0 +1,185 @@
+```{r}
+source('../results/simulated/utils.R')
+```
+
+```{r}
+risk_mod <- function(X, y, gamma = NULL, beta = NULL, weights = NULL,
+                     n_train_runs = 5, lambda0 = 0, a = -10, b = 10,
+                     max_iters = 100,  tol = 1e-5, shuffle = TRUE, seed = NULL) {
+
+  # Set seed
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
+
+  # Check that X is a matrix
+  if (!is.matrix(X)) stop ("X must be a matrix")
+
+  if (n_train_runs != round(n_train_runs) | n_train_runs < 0) {
+    stop("n_train_runs must be a positive integer")
+  }
+
+  # Add intercept column
+  if (!all(X[,1] == rep(1, nrow(X)))) {
+    X <- cbind(Intercept = rep(1, nrow(X)), X)
+  }
+
+  # Convert beta to integers within range
+  if (any(!(beta%%1==0)) | any(beta < a) | any(beta > b)) {
+    if (max(abs(beta[-1])) == 0) {
+      scalar <- 1
+    } else {
+      scalar <- max(abs(beta[-1]))/min(abs(a + 0.5), abs(b + 0.5))
+    }
+    beta <- beta/scalar
+    beta[-1] <- round(beta[-1])
+  }
+
+  # Weights
+  if (is.null(weights)) {
+    weights <- rep(1, nrow(X))}
+
+  # Function to run coordinate descent with initialization
+  run_risk_mod <- function(X, y, gamma, beta, weights, lambda0, a, b,
+                           max_iters, tol, shuffle) {
+    # If initial gamma is null but have betas then use update function
+    if (is.null(gamma) & (!is.null(beta))){
+      upd <- update_gamma_intercept(X, y, beta, weights)
+      gamma <- upd$gamma
+      beta <- upd$beta
+    }
+
+    # Initial beta is null then round LR coefficients using median
+    if (is.null(beta)){
+      # Initial model
+      df <- data.frame(X, y)
+      init_mod <- stats::glm(y~.-1, family = "binomial", weights = weights, data = df)
+
+      # Replace NA's with 0's
+      coef_vals <- unname(stats::coef(init_mod))
+      coef_vals[is.na(coef_vals)] <- 0
+
+      # Round so betas within range
+      gamma <- max(abs(coef_vals[-1]))/min(abs(a + 0.5), abs(b + 0.5))
+      beta <- coef_vals/gamma
+      beta <- randomized_rounding(beta)
+    }
+
+    # Check no numeric issues
+    if (is.nan(gamma) | sum(is.nan(beta)) > 0){
+      stop("Initial gamma or beta is NaN - check starting value for beta")
+    }
+    if (is.na(gamma) | sum(is.na(beta)) > 0){
+      stop("Initial gamma or beta is NA - check starting value for beta")
+    }
+    if (length(beta) != ncol(X)) stop("beta and X non-compatible")
+    if (length(y) != nrow(X)) stop("y and X non-compatible")
+
+    # Run coordinate descent from initial solution
+    res <- risk_coord_desc(X, y, gamma, beta, weights, lambda0, a, b, max_iters,
+                           tol, shuffle)
+
+    gamma <- res$gamma
+    beta <- res$beta
+
+    return(list(gamma=gamma, beta=beta))
+  }
+
+  # Track minimum objective function and best model parameters
+  min_obj_fn <- Inf
+  best_gamma <- NULL
+  best_beta <- NULL
+
+  # Run n_train_runs to find the best model
+  for (i in 1:n_train_runs) {
+    curr_mod <- run_risk_mod(X, y, gamma, beta, weights, lambda0, a, b,
+                             max_iters, tol, shuffle)
+    curr_obj_fn <- obj_fcn(X, y, curr_mod$gamma, curr_mod$beta, weights, lambda0)
+
+    if (curr_obj_fn < min_obj_fn) {
+      min_obj_fn <- curr_obj_fn
+      best_gamma <- curr_mod$gamma
+      best_beta <- curr_mod$beta
+    }
+  }
+
+  # Convert to GLM object
+  glm_mod <- stats::glm(y~.-1, family = "binomial", weights = weights,
+                        start = best_gamma*best_beta, method=glm_fit_risk,
+                        data = data.frame(X, y))
+  names(best_beta) <- names(stats::coef(glm_mod))
+
+  # Generate score card and score map for the best model
+  nonzero_beta <- best_beta[best_beta != 0][-1] # Exclude intercept
+  if (length(nonzero_beta) <= 1) {
+    model_card <- NULL
+    score_map <- NULL
+  } else {
+    model_card <- data.frame(Points = nonzero_beta)
+
+    # Get range of possible scores
+    X_nonzero <- X[,which(best_beta != 0)][,-1]
+    min_pts <- rep(NA, length(nonzero_beta))
+    max_pts <- rep(NA, length(nonzero_beta))
+    for (i in 1:ncol(X_nonzero)) {
+      temp <- nonzero_beta[i] * c(min(X_nonzero[,i]), max(X_nonzero[,i]))
+      min_pts[i] <- min(temp)
+      max_pts[i] <- max(temp)
+    }
+
+    score_range <- seq(sum(min_pts), sum(max_pts))
+
+    # Map scores to risk
+    v <- best_gamma*(best_beta[1] + score_range)
+    p <- exp(v)/(1+exp(v))
+
+    # Save score map
+    score_map <- data.frame(Score = score_range,
+                            Risk = round(p,4))
+  }
+
+  # Return the best model with score card and score map
+  best_mod <- list(gamma=best_gamma, beta=best_beta, glm_mod=glm_mod, X=X, y=y,
+                   weights=weights, lambda0 = lambda0, model_card = model_card,
+                   score_map = score_map)
+  class(best_mod) <- "risk_mod"
+  return(best_mod)
+}
+```
+
+```{r}
+kharitode <- read.csv("../data/tb_diagnosis/Kharitodestudy.csv")
+stomp <- read.csv("../data/tb_diagnosis/STOMPstudy.csv")
+
+source('../R/preprocessing.R')
+
+### Derivation Data 
+deriv_df <- kharitode_preprocessing(kharitode)
+
+der_matrix <- model.matrix(tb ~ ., data=deriv_df)
+der_matrix <- cbind(der_matrix, tb = as.numeric(as.vector(deriv_df$tb)))
+
+X_der <- as.matrix(der_matrix[,-ncol(der_matrix)])
+y_der <- der_matrix[,ncol(der_matrix)] %>% as.vector
+
+
+### Validation Data
+val_df <- stomp_preprocessing(stomp)
+
+val_matrix <- model.matrix(tb ~ ., data=val_df)
+val_matrix <- cbind(val_matrix, tb = as.numeric(as.vector(val_df$tb)))
+
+X_val <- as.matrix(val_matrix[,-ncol(val_matrix)])
+y_val <- val_matrix[,ncol(val_matrix)] %>% as.vector()
+
+mod <- risk_mod(X=X_der, y=y_der, a = -6, b = 6, n_train_runs = 100)
+
+mod_pred_der <- predict(mod, type = "response")[,1]
+mod_pred_val <- predict(mod, X_val, type = "response")[,1]
+
+library(pROC)
+
+roc(y_der, mod_pred_der, quiet = TRUE) %>% auc() # about 80%
+roc(y_val, mod_pred_val, quiet = TRUE) %>% auc() # about 77%
+obj_fcn(mod$X, mod$y, mod$gamma, mod$beta, mod$weights, mod$lambda0) # about 0.53
+```
