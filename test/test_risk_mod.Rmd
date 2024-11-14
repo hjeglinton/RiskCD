@@ -147,39 +147,56 @@ risk_mod <- function(X, y, gamma = NULL, beta = NULL, weights = NULL,
 }
 ```
 
-```{r}
-kharitode <- read.csv("../data/tb_diagnosis/Kharitodestudy.csv")
-stomp <- read.csv("../data/tb_diagnosis/STOMPstudy.csv")
+```{r, warning=FALSE}
+# sigmoid function
+expit <- function(x) {
+  1 / (1 + exp(-x))
+}
 
-source('../R/preprocessing.R')
+true_beta <- matrix(c(-3, 2, 0, 5, -1))  # fixed integer beta values
+X <- matrix(sample(0:1, 100, replace = TRUE), nrow = 20)  # random binary matrix X (20x5)
+X_beta <- X %*% true_beta 
 
-### Derivation Data 
-deriv_df <- kharitode_preprocessing(kharitode)
+# Set intercept and gamma such that range of probabilities of expit(intercept+gamma*X%*%beta) covers range 0-1
+intercept <- mean(X_beta) 
+gamma <- 1 / max(abs(X_beta))  # scale to ensure expit covers the range [0,1]
+probabilities <- expit(intercept + gamma * X_beta)
 
-der_matrix <- model.matrix(tb ~ ., data=deriv_df)
-der_matrix <- cbind(der_matrix, tb = as.numeric(as.vector(deriv_df$tb)))
+# generate y randomly based on probabilities
+set.seed(42)
+y <- rbinom(length(probabilities), 1, probabilities)  
 
-X_der <- as.matrix(der_matrix[,-ncol(der_matrix)])
-y_der <- der_matrix[,ncol(der_matrix)] %>% as.vector
+# check if model recovers true betas under different initializations (use default, random integers, all 1)
+X_intercept = cbind(rep(1,20), X)
 
+# model where risk_mod initializes betas
+mod_betas_null = risk_mod(X=X, y=y, beta=NULL)
 
-### Validation Data
-val_df <- stomp_preprocessing(stomp)
+# model where betas are random integers in [-5, 5]
+mod_betas_rand = risk_mod(X=X_intercept, y=y, beta=sample(-5:5, 6, replace=TRUE))
 
-val_matrix <- model.matrix(tb ~ ., data=val_df)
-val_matrix <- cbind(val_matrix, tb = as.numeric(as.vector(val_df$tb)))
+# model where betas are all ones
+mod_betas_ones = risk_mod(X=X_intercept, y=y, beta=rep(1,6))
 
-X_val <- as.matrix(val_matrix[,-ncol(val_matrix)])
-y_val <- val_matrix[,ncol(val_matrix)] %>% as.vector()
+obj_null = obj_fcn(mod_betas_null$X, mod_betas_null$y, mod_betas_null$gamma, 
+                   mod_betas_null$beta, mod_betas_null$weights, 
+                   mod_betas_null$lambda0)
+obj_rand = obj_fcn(mod_betas_rand$X, mod_betas_rand$y, mod_betas_rand$gamma, 
+                   mod_betas_rand$beta, mod_betas_rand$weights, 
+                   mod_betas_rand$lambda0)
+obj_ones = obj_fcn(mod_betas_ones$X, mod_betas_ones$y, mod_betas_ones$gamma, 
+                   mod_betas_ones$beta, mod_betas_ones$weights, 
+                   mod_betas_ones$lambda0)
 
-mod <- risk_mod(X=X_der, y=y_der, a = -6, b = 6, n_train_runs = 100)
+cat("Objective Function Values:\n")
+cat("Default beta initialization (null):", obj_null, "\n")
+cat("Random beta initialization:", obj_rand, "\n")
+cat("All ones beta initialization:", obj_ones, "\n")
 
-mod_pred_der <- predict(mod, type = "response")[,1]
-mod_pred_val <- predict(mod, X_val, type = "response")[,1]
-
-library(pROC)
-
-roc(y_der, mod_pred_der, quiet = TRUE) %>% auc() # about 80%
-roc(y_val, mod_pred_val, quiet = TRUE) %>% auc() # about 77%
-obj_fcn(mod$X, mod$y, mod$gamma, mod$beta, mod$weights, mod$lambda0) # about 0.53
+# Compare estimated beta to true beta for each model
+cat("\nEstimated vs. True Beta Values:\n")
+cat("True Beta Values:", true_beta, "\n")
+cat("Estimated Beta (Default Initialization):", mod_betas_null$beta, "\n")
+cat("Estimated Beta (Random Initialization):", mod_betas_rand$beta, "\n")
+cat("Estimated Beta (All Ones Initialization):", mod_betas_ones$beta, "\n")
 ```
