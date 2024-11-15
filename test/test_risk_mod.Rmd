@@ -1,0 +1,202 @@
+```{r}
+source('../results/simulated/utils.R')
+```
+
+```{r}
+risk_mod <- function(X, y, gamma = NULL, beta = NULL, weights = NULL,
+                     n_train_runs = 5, lambda0 = 0, a = -10, b = 10,
+                     max_iters = 100,  tol = 1e-5, shuffle = TRUE, seed = NULL) {
+
+  # Set seed
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
+
+  # Check that X is a matrix
+  if (!is.matrix(X)) stop ("X must be a matrix")
+
+  if (n_train_runs != round(n_train_runs) | n_train_runs < 0) {
+    stop("n_train_runs must be a positive integer")
+  }
+
+  # Add intercept column
+  if (!all(X[,1] == rep(1, nrow(X)))) {
+    X <- cbind(Intercept = rep(1, nrow(X)), X)
+  }
+
+  # Convert beta to integers within range
+  if (any(!(beta%%1==0)) | any(beta < a) | any(beta > b)) {
+    if (max(abs(beta[-1])) == 0) {
+      scalar <- 1
+    } else {
+      scalar <- max(abs(beta[-1]))/min(abs(a + 0.5), abs(b + 0.5))
+    }
+    beta <- beta/scalar
+    beta[-1] <- round(beta[-1])
+  }
+
+  # Weights
+  if (is.null(weights)) {
+    weights <- rep(1, nrow(X))}
+
+  # Function to run coordinate descent with initialization
+  run_risk_mod <- function(X, y, gamma, beta, weights, lambda0, a, b,
+                           max_iters, tol, shuffle) {
+    # If initial gamma is null but have betas then use update function
+    if (is.null(gamma) & (!is.null(beta))){
+      upd <- update_gamma_intercept(X, y, beta, weights)
+      gamma <- upd$gamma
+      beta <- upd$beta
+    }
+
+    # Initial beta is null then round LR coefficients using median
+    if (is.null(beta)){
+      # Initial model
+      df <- data.frame(X, y)
+      init_mod <- stats::glm(y~.-1, family = "binomial", weights = weights, data = df)
+
+      # Replace NA's with 0's
+      coef_vals <- unname(stats::coef(init_mod))
+      coef_vals[is.na(coef_vals)] <- 0
+
+      # Round so betas within range
+      gamma <- max(abs(coef_vals[-1]))/min(abs(a + 0.5), abs(b + 0.5))
+      beta <- coef_vals/gamma
+      beta <- randomized_rounding(beta)
+    }
+
+    # Check no numeric issues
+    if (is.nan(gamma) | sum(is.nan(beta)) > 0){
+      stop("Initial gamma or beta is NaN - check starting value for beta")
+    }
+    if (is.na(gamma) | sum(is.na(beta)) > 0){
+      stop("Initial gamma or beta is NA - check starting value for beta")
+    }
+    if (length(beta) != ncol(X)) stop("beta and X non-compatible")
+    if (length(y) != nrow(X)) stop("y and X non-compatible")
+
+    # Run coordinate descent from initial solution
+    res <- risk_coord_desc(X, y, gamma, beta, weights, lambda0, a, b, max_iters,
+                           tol, shuffle)
+
+    gamma <- res$gamma
+    beta <- res$beta
+
+    return(list(gamma=gamma, beta=beta))
+  }
+
+  # Track minimum objective function and best model parameters
+  min_obj_fn <- Inf
+  best_gamma <- NULL
+  best_beta <- NULL
+
+  # Run n_train_runs to find the best model
+  for (i in 1:n_train_runs) {
+    curr_mod <- run_risk_mod(X, y, gamma, beta, weights, lambda0, a, b,
+                             max_iters, tol, shuffle)
+    curr_obj_fn <- obj_fcn(X, y, curr_mod$gamma, curr_mod$beta, weights, lambda0)
+
+    if (curr_obj_fn < min_obj_fn) {
+      min_obj_fn <- curr_obj_fn
+      best_gamma <- curr_mod$gamma
+      best_beta <- curr_mod$beta
+    }
+  }
+
+  # Convert to GLM object
+  glm_mod <- stats::glm(y~.-1, family = "binomial", weights = weights,
+                        start = best_gamma*best_beta, method=glm_fit_risk,
+                        data = data.frame(X, y))
+  names(best_beta) <- names(stats::coef(glm_mod))
+
+  # Generate score card and score map for the best model
+  nonzero_beta <- best_beta[best_beta != 0][-1] # Exclude intercept
+  if (length(nonzero_beta) <= 1) {
+    model_card <- NULL
+    score_map <- NULL
+  } else {
+    model_card <- data.frame(Points = nonzero_beta)
+
+    # Get range of possible scores
+    X_nonzero <- X[,which(best_beta != 0)][,-1]
+    min_pts <- rep(NA, length(nonzero_beta))
+    max_pts <- rep(NA, length(nonzero_beta))
+    for (i in 1:ncol(X_nonzero)) {
+      temp <- nonzero_beta[i] * c(min(X_nonzero[,i]), max(X_nonzero[,i]))
+      min_pts[i] <- min(temp)
+      max_pts[i] <- max(temp)
+    }
+
+    score_range <- seq(sum(min_pts), sum(max_pts))
+
+    # Map scores to risk
+    v <- best_gamma*(best_beta[1] + score_range)
+    p <- exp(v)/(1+exp(v))
+
+    # Save score map
+    score_map <- data.frame(Score = score_range,
+                            Risk = round(p,4))
+  }
+
+  # Return the best model with score card and score map
+  best_mod <- list(gamma=best_gamma, beta=best_beta, glm_mod=glm_mod, X=X, y=y,
+                   weights=weights, lambda0 = lambda0, model_card = model_card,
+                   score_map = score_map)
+  class(best_mod) <- "risk_mod"
+  return(best_mod)
+}
+```
+
+```{r, warning=FALSE}
+# sigmoid function
+expit <- function(x) {
+  1 / (1 + exp(-x))
+}
+
+true_beta <- matrix(c(-3, 2, 0, 5, -1))  # fixed integer beta values
+X <- matrix(sample(0:1, 100, replace = TRUE), nrow = 20)  # random binary matrix X (20x5)
+X_beta <- X %*% true_beta 
+
+# Set intercept and gamma such that range of probabilities of expit(intercept+gamma*X%*%beta) covers range 0-1
+intercept <- mean(X_beta) 
+gamma <- 1 / max(abs(X_beta))  # scale to ensure expit covers the range [0,1]
+probabilities <- expit(intercept + gamma * X_beta)
+
+# generate y randomly based on probabilities
+set.seed(42)
+y <- rbinom(length(probabilities), 1, probabilities)  
+
+# check if model recovers true betas under different initializations (use default, random integers, all 1)
+X_intercept = cbind(rep(1,20), X)
+
+# model where risk_mod initializes betas
+mod_betas_null = risk_mod(X=X, y=y, beta=NULL)
+
+# model where betas are random integers in [-5, 5]
+mod_betas_rand = risk_mod(X=X_intercept, y=y, beta=sample(-5:5, 6, replace=TRUE))
+
+# model where betas are all ones
+mod_betas_ones = risk_mod(X=X_intercept, y=y, beta=rep(1,6))
+
+obj_null = obj_fcn(mod_betas_null$X, mod_betas_null$y, mod_betas_null$gamma, 
+                   mod_betas_null$beta, mod_betas_null$weights, 
+                   mod_betas_null$lambda0)
+obj_rand = obj_fcn(mod_betas_rand$X, mod_betas_rand$y, mod_betas_rand$gamma, 
+                   mod_betas_rand$beta, mod_betas_rand$weights, 
+                   mod_betas_rand$lambda0)
+obj_ones = obj_fcn(mod_betas_ones$X, mod_betas_ones$y, mod_betas_ones$gamma, 
+                   mod_betas_ones$beta, mod_betas_ones$weights, 
+                   mod_betas_ones$lambda0)
+
+cat("Objective Function Values:\n")
+cat("Default beta initialization (null):", obj_null, "\n")
+cat("Random beta initialization:", obj_rand, "\n")
+cat("All ones beta initialization:", obj_ones, "\n")
+
+# Compare estimated beta to true beta for each model
+cat("\nEstimated vs. True Beta Values:\n")
+cat("True Beta Values:", true_beta, "\n")
+cat("Estimated Beta (Default Initialization):", mod_betas_null$beta, "\n")
+cat("Estimated Beta (Random Initialization):", mod_betas_rand$beta, "\n")
+cat("Estimated Beta (All Ones Initialization):", mod_betas_ones$beta, "\n")
+```
