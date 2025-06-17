@@ -3,7 +3,7 @@ library(tidyverse)
 
 #' Simulate data and coefficients
 #'
-#' @param n Number of observations.
+#' @param n Number of observations for train set.
 #' @param p Total number of variables.
 #' @param p_zero Proportion of variables with a coefficient of zero.
 #' @param eps Value between 0 and 1 representing amount of noise.
@@ -14,13 +14,15 @@ sim_data <- function(n, p, prop_zero, snr){
   # Simulate coefficients
   p_zero <- floor(p*prop_zero)
   p_nonzero <- p - p_zero
-
-  coef <- c(runif(p_nonzero, 0, 10), rep(0, p_zero))
+  coef <- c(rnorm(p_nonzero, 0, 0.5), rep(0, p_zero))
+  
+  # Total n
+  n_df <- 2*n
 
   # Simulate covariates
-  x <- matrix(0, nrow = n + (10*p), ncol = p)
+  x <- matrix(0, nrow = n_df, ncol = p)
   for (i in 1:p){
-    x[,i] <- rbinom(n + (10*p), 1, runif(1, 0.1, 0.9))
+    x[,i] <- rbinom(n_df, 1, runif(1, 0.1, 0.9))
   }
 
   # Get intercept
@@ -29,12 +31,12 @@ sim_data <- function(n, p, prop_zero, snr){
 
   # Get epsilon values
   sd_epsilon <- sqrt(var(vals, na.rm = TRUE) / snr)
-  eps <- matrix(rnorm(n + (10*p), mean = 0, sd = sd_epsilon), ncol = 1)
+  eps <- matrix(rnorm(n_df, mean = 0, sd = sd_epsilon), ncol = 1)
 
   # Simulate outcome
   vals <- vals + intercept + eps
   probs <- exp(vals)/(1 + exp(vals))
-  y <- rbinom(n + 10*p, 1, prob = probs)
+  y <- rbinom(n_df, 1, prob = probs)
 
   return(list(x = x, y = y,coef = coef, intercept = intercept))
 }
@@ -57,7 +59,7 @@ gen_data <- function(n, p, prop_zero, snr, folder, filename){
   # data file
   df <- as.data.frame(data$x)
   df$y <- data$y
-  df$train <- c(rep(1, n), rep(0, 10*p))
+  df$train <- c(rep(1, n), rep(0, n))
   df <- df %>%
     select(train, y, everything())
   write.csv(df, paste0(folder, filename,"_data.csv"), row.names=FALSE)
@@ -71,20 +73,21 @@ gen_data <- function(n, p, prop_zero, snr, folder, filename){
 
 # Example of generating data and saving
 set.seed(5)
-n = c(100, 500, 1000, 5000)
-p = c(10, 25, 50)
-prop_zero = c(0.5)
-snr = c(1, 3)
-n_iter = 10
+n = c(200, 400, 800)
+p_prop = c(0.05, 0.1)
+prop_zero = c(0.0, 0.5)
+snr = c(1,3)
+n_iter = 40
 
 for (j in 1:length(n)){
-  for (k in 1:length(p)) {
+  for (k in 1:length(p_prop)) {
     for (l in 1:length(prop_zero)) {
       for (s in 1:length(snr)){
         for (i in 1:n_iter){
-          gen_data(n[j], p[k], prop_zero[l], snr[s],
-                   "~/Documents/GitHub/thesis/data/simulated2/",
-                   paste0("sim",'_',n[j],'_',p[k],"_",prop_zero[l],
+          p = p_prop[k]*n[j]
+          gen_data(n[j], p, prop_zero[l], snr[s],
+                   "/Users/alice/Dropbox/RiskCD/data/simulated-new/",
+                   paste0("sim",'_',n[j],'_',p,"_",prop_zero[l],
                           "_",snr[s],"_",i))
         }
       }

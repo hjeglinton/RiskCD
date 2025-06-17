@@ -66,31 +66,43 @@ percent_best <- function(results_df, methods) {
 ####################################
 
 # Read in results
-results_noCV <- process_results(filepath = "../results/simulated/results_sim_0309_noCV.csv") %>%
-  filter(method %in% c("NLLCD", "Lasso", "LR"))
-results_CD_CV <- process_results(filepath = "../results/simulated/results_sim_0317_CD_CV.csv")
-results_FR_noCV <- process_results(filepath = "../results/simulated/results_sim_0318_FR_noCV.csv")
-results_FR_CV_p10 <- process_results(filepath = "../results/simulated/results_sim_0314_FR_CV_p10.csv")
-results_FR_CV_p25 <- process_results(filepath = "../results/simulated/results_sim_0314_FR_CV_p25.csv")
-results_FR_CV_p50_n100 <- process_results(filepath = "../results/simulated/results_sim_0319_FR_CV_p50.csv")
-results_rounded <- process_results(filepath = "../results/simulated/results_sim_0405_rounded.csv")
+#results_noCV <- process_results(filepath = "../results/simulated/results_sim_0309_noCV.csv") %>%
+#  filter(method %in% c("NLLCD", "Lasso", "LR"))
+#results_CD_CV <- process_results(filepath = "../results/simulated/results_sim_0317_CD_CV.csv")
+#results_FR_noCV <- process_results(filepath = "../results/simulated/results_sim_0318_FR_noCV.csv")
+#results_FR_CV_p10 <- process_results(filepath = "../results/simulated/results_sim_0314_FR_CV_p10.csv")
+#results_FR_CV_p25 <- process_results(filepath = "../results/simulated/results_sim_0314_FR_CV_p25.csv")
+#results_FR_CV_p50_n100 <- process_results(filepath = "../results/simulated/results_sim_0319_FR_CV_p50.csv")
+#results_rounded <- process_results(filepath = "../results/simulated/results_sim_0405_rounded.csv")
+
+# load all results
+df_log <- read.csv("../results/simulated/results_sim_log.csv")
+df_lasso <- read.csv("../results/simulated/results_sim_lasso.csv")
+df_risk <- read.csv("../results/simulated/results_sim_risk.csv")
+df_riskcv <- read.csv("../results/simulated/results_sim_riskcv.csv")
+df_fr <- read.csv("../results/simulated/results_sim_fr.csv")
+df_frcv <- read.csv("../results/simulated/results_sim_frcv.csv")
+
+# bind
+res <- rbind(df_log, df_lasso, df_risk, df_riskcv, df_fr, df_frcv)
+res <- process_results(res)
 
 #### Table -- no CV ####
 
 # Summaries -- no CV
-LR_summary <- summarize_metrics(results_noCV, "LR")
-rLR_summary <- summarize_metrics(results_rounded, "Rounded LR")
-FR_summary <- summarize_metrics(results_FR_noCV, "FasterRisk")
-CD_summary <- summarize_metrics(results_noCV, "NLLCD")
+LR_summary <- summarize_metrics(res, "LR")
+rLR_summary <- summarize_metrics(res, "Rounded LR")
+FR_summary <- summarize_metrics(res, "FasterRisk")
+CD_summary <- summarize_metrics(res, "NLLCD")
 
 # rLR vs RiskCD
 round((rLR_summary$AUC - CD_summary$AUC) / rLR_summary$AUC, 3)
 
 
 # %Best -- no CV
-percent_best(bind_rows(results_noCV, results_FR_noCV, results_rounded),
+percent_best(res,
              methods = c("FasterRisk", "NLLCD", "Rounded LR")) %>%
-  group_by(n, p) %>%
+  group_by(n, p, snr) %>%
   summarize(nllcd_best = mean(NLLCD_best)*100,
             rLR_best = mean(`Rounded LR_best`)*100,
             FR_best = mean(FasterRisk_best)*100)
@@ -98,23 +110,20 @@ percent_best(bind_rows(results_noCV, results_FR_noCV, results_rounded),
 #### Table -- CV ####
 
 # Summaries -- CV
-lasso_summary <- summarize_metrics(results_noCV, "Lasso")
-rlasso_summary <- summarize_metrics(results_rounded, "Rounded Lasso")
-cdcv_summary <- summarize_metrics(results_CD_CV, "NLLCD with CV (lambda_min)")
-frcv_summary <- summarize_metrics(bind_rows(results_FR_CV_p10, results_FR_CV_p25, results_FR_CV_p50_n100),
-                                  "FasterRisk-CV")
-
-
+lasso_summary <- summarize_metrics(res, "Lasso")
+rlasso_summary <- summarize_metrics(res, "Rounded Lasso")
+cdcv_summary <- summarize_metrics(res, "NLLCD with CV (lambda_min)")
+frcv_summary <- summarize_metrics(res, "FasterRisk-CV")
 
 # rLasso vs CD-CV
 round((rlasso_summary$AUC - cdcv_summary$AUC) / rlasso_summary$AUC, 3)
 
 
 # %Best -- CV
-percent_best(filter(bind_rows(results_rounded, results_CD_CV, results_FR_CV_p10, results_FR_CV_p25, results_FR_CV_p50_n100)),
+percent_best(res,
              methods = c("Rounded Lasso", "NLLCD with CV (lambda_min)",
                          "FasterRisk-CV")) %>%
-  group_by(n, p) %>%
+  group_by(n, p, snr) %>%
   summarize(rLasso_best = mean(`Rounded Lasso_best`)*100,
             riskcd_best = mean(`NLLCD with CV (lambda_min)_best`)*100,
             FR_best = mean(`FasterRisk-CV_best`)*100)
