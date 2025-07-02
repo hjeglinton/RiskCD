@@ -252,7 +252,7 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
     # FasterRisk - with CV
     if ("fasterrisk-cv" %in% method) {
       
-      if (ncol(X_train_FR) < 50) {
+      if (ncol(X_train_FR) >= 50) {
         
         start_FR_CV <- Sys.time()
         FR_CV <- run_FR_CV(X_train_FR, y_train, a, b, foldids = foldids,
@@ -395,47 +395,30 @@ run_experiments <- function(data_path, results_path, random_split = TRUE,
 }
 
 # Simulated data
-run_experiments(data_path = "../data/simulated-new/",
-                results_path = "../results-new/results_noCV_10.csv",
-                random_split = FALSE,
-                method = c("riskcd",
-                           "annealscore",
-                           "lasso", "lasso-rounded",
-                           "logistic", "logistic-rounded",
-                           "fasterrisk"),
-                a = -10, b = 10)
-run_experiments(data_path = "../data/simulated-new/",
-                results_path = "../results-new/results_noCV_5.csv",
-                random_split = FALSE,
-                method = c("riskcd",
-                           "annealscore",
-                           "lasso", "lasso-rounded",
-                           "logistic", "logistic-rounded",
-                           "fasterrisk"),
-                a = -5, b = 5)
-run_experiments(data_path = "../data/simulated-new/",
-                results_path = "../results-new/results_noCV_3.csv",
-                random_split = FALSE,
-                method = c("riskcd",
-                           "annealscore",
-                           "lasso", "lasso-rounded",
-                           "logistic", "logistic-rounded",
-                           "fasterrisk"),
-                a = 0, b = 3)
-# run_experiments(data_path = "../data/",
-#                 results_path = "../results/manuscript/results_fasterriskCV.csv",
+# run_experiments(data_path = "../data/simulated-new/",
+#                 results_path = "../results-new/results_noCV_3.csv",
 #                 random_split = FALSE,
-#                 method = c("fasterrisk-cv"))
+#                 method = c("riskcd",
+#                            "annealscore",
+#                            "lasso", "lasso-rounded",
+#                            "logistic", "logistic-rounded",
+#                            "fasterrisk"),
+#                 a = -3, b = 3)
+# run_experiments(data_path = "../data/simulated-new/",
+#                  results_path = "../results-new/results_CV_3.csv",
+#                  random_split = FALSE,
+#                  method = c("riskcd-cv","annealscore-cv"),
+#                 a = -3, b=3)
 run_experiments(data_path = "../data/simulated-new/",
-                 results_path = "../results-new/results_CV.csv",
-                 random_split = FALSE,
-                 method = c("riskcd-cv","annealscore-cv"),
-                a = -5, b=5)
-run_experiments(data_path = "../data/simulated-new/",
-                                 results_path = "../results-new/results_fasterriskCV.csv",
+                                 results_path = "../results-new/results_fasterriskCV_5_2.csv",
                                  random_split = FALSE,
                                  method = c("fasterrisk-cv"),
                 a = -5, b=5)
+run_experiments(data_path = "../data/simulated-new/",
+                results_path = "../results-new/results_fasterriskCV_3_2.csv",
+                random_split = FALSE,
+                method = c("fasterrisk-cv"),
+                a = -3, b=3)
 # run_experiments(data_path = "../data/",
 #                results_path = "../results/manuscript/results_fasterriskCV_p50.csv",
 #                random_split = FALSE,
