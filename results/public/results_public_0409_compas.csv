@@ -1,5 +1,0 @@
-data,n,p,method,seconds,lambda0,num_nonzeros,which_nonzeros,auc_train,auc_test,brier_train,brier_test,med_abs,max_abs
-compas_data.csv,5049,6,NLLCD,0.12,0,6,1_2_3_4_5_6,0.690476983,0.682,0.220982733,0.225889687,4,10
-compas_data.csv,5049,6,FasterRisk,2.050810099,NA,6,1_2_3_4_5_6,0.69063767,0.682,0.221121629,0.225986181,2,5
-compas_data.csv,5049,6,LR,0.020580053,NA,6,1_2_3_4_5_6,0.688165855,0.68043198,0.220991866,0.225842688,0.255988217,0.572884719
-compas_data.csv,5049,6,Rounded LR,0.03,NA,6,1_2_3_4_5_6,0.689347183,0.681,0.221025159,0.225863175,4.5,10

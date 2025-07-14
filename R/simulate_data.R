@@ -14,7 +14,7 @@ sim_data <- function(n, p, prop_zero, snr){
   # Simulate coefficients
   p_zero <- floor(p*prop_zero)
   p_nonzero <- p - p_zero
-  coef <- c(rnorm(p_nonzero, 0, 0.5), rep(0, p_zero))
+  coef <- c(runif(p_nonzero, 0, 10), rep(0, p_zero))
   
   # Total n
   n_df <- 2*n
@@ -73,10 +73,10 @@ gen_data <- function(n, p, prop_zero, snr, folder, filename){
 
 # Example of generating data and saving
 set.seed(5)
-n = c(200, 400, 800)
+n = c(200)
 p_prop = c(0.05, 0.1)
-prop_zero = c(0.0, 0.5)
-snr = c(1,3)
+prop_zero = c(0.0)
+snr = c(3)
 n_iter = 40
 
 for (j in 1:length(n)){
@@ -86,7 +86,7 @@ for (j in 1:length(n)){
         for (i in 1:n_iter){
           p = p_prop[k]*n[j]
           gen_data(n[j], p, prop_zero[l], snr[s],
-                   "/Users/alice/Dropbox/RiskCD/data/simulated-new/",
+                   "/Users/alice/Dropbox/RiskCD/data/simulated-test/",
                    paste0("sim",'_',n[j],'_',p,"_",prop_zero[l],
                           "_",snr[s],"_",i))
         }
